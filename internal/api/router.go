@@ -9,9 +9,9 @@ import (
 )
 
 // NewRouter creates and configures the gin router.
-// authUser/authPass are optional: when both are non-empty, HTTP Basic Auth
-// is enforced on all routes (including the static UI).
-func NewRouter(client *k8s.Client, defaultNamespace, authUser, authPass string) *gin.Engine {
+// authUser/authPass are mandatory — NewRouter panics if either is empty.
+// version is the application version string injected via ldflags.
+func NewRouter(client *k8s.Client, defaultNamespace, authUser, authPass, version string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
@@ -21,7 +21,7 @@ func NewRouter(client *k8s.Client, defaultNamespace, authUser, authPass string) 
 		r.Use(gin.BasicAuth(gin.Accounts{authUser: authPass}))
 	}
 
-	h := &Handler{client: client, defaultNS: defaultNamespace}
+	h := &Handler{client: client, defaultNS: defaultNamespace, version: version}
 
 	// Serve embedded static files
 	r.GET("/", func(c *gin.Context) {

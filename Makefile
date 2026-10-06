@@ -1,6 +1,6 @@
 APP      := gubexplorer
 IMAGE    ?= $(APP)
-VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || cat VERSION 2>/dev/null || echo "dev")
 GOOS     ?= $(shell go env GOOS)
 GOARCH   ?= $(shell go env GOARCH)
 

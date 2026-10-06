@@ -15,6 +15,7 @@ import (
 type Handler struct {
 	client    *k8s.Client
 	defaultNS string
+	version   string
 }
 
 // ---------- Permissions ----------
@@ -59,7 +60,7 @@ func (h *Handler) ListCRDTypes(c *gin.Context) {
 func (h *Handler) GetConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"defaultNamespace": h.defaultNS,
-		"version":          "1.0.0",
+		"version":          h.version,
 		"host":             h.client.Host(),
 	})
 }

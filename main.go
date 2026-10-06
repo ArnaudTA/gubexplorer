@@ -10,6 +10,9 @@ import (
 	"gubexplorer/internal/k8s"
 )
 
+// version is injected at build time via -ldflags "-X main.version=x.y.z"
+var version = "dev"
+
 func main() {
 	port := flag.String("port", envOr("PORT", "8080"), "HTTP listen port")
 	kubeconfig := flag.String("kubeconfig", os.Getenv("KUBECONFIG"), "Path to kubeconfig file (empty = in-cluster or ~/.kube/config)")
@@ -35,7 +38,7 @@ func main() {
 		log.Printf("starting gubexplorer on :%s  |  default namespace: %s  |  auth: enabled (user=%s)", *port, *namespace, *authUser)
 	}
 
-	router := api.NewRouter(client, *namespace, *authUser, *authPass)
+	router := api.NewRouter(client, *namespace, *authUser, *authPass, version)
 	if err := router.Run(":" + *port); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
