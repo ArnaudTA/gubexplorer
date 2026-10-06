@@ -3,9 +3,9 @@ name: gubexplorer
 description: Web UI to explore and manage Kubernetes namespace resources
 type: application
 version: 1.0.0
-appVersion: "1.0.0"
+appVersion: "1.1.0"
 keywords:
   - kubernetes
   - explorer
   - dashboard
-home: https://github.com/nonot/gubexplorer
+home: https://github.com/arnaudta/gubexplorer
