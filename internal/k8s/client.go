@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,17 +20,20 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/remotecommand"
 	sigsyaml "sigs.k8s.io/yaml"
 )
 
 // Client wraps the dynamic and typed Kubernetes clients.
 type Client struct {
-	dynamic dynamic.Interface
-	typed   kubernetes.Interface
-	host    string
-	cache   gvrCache
+	dynamic    dynamic.Interface
+	typed      kubernetes.Interface
+	restConfig *rest.Config
+	host       string
+	cache      gvrCache
 }
 
 // ── GVR cache ──────────────────────────────────────────────────────────────
@@ -96,7 +100,7 @@ func NewClient(kubeconfig string) (*Client, error) {
 		return nil, fmt.Errorf("typed client: %w", err)
 	}
 
-	return &Client{dynamic: dyn, typed: typed, host: cfg.Host}, nil
+	return &Client{dynamic: dyn, typed: typed, restConfig: cfg, host: cfg.Host}, nil
 }
 
 // Host returns the Kubernetes API server address.
@@ -318,6 +322,71 @@ func (c *Client) GetPodContainers(ctx context.Context, namespace, podName string
 		names = append(names, c.Name)
 	}
 	return names, nil
+}
+
+// ── Exec & CP ─────────────────────────────────────────────────────────────
+
+// ExecStream opens a remote command execution session on a pod container.
+// resizeQueue may be nil for non-TTY sessions.
+func (c *Client) ExecStream(
+	ctx context.Context,
+	namespace, podName, container string,
+	command []string,
+	stdin io.Reader,
+	stdout, stderr io.Writer,
+	tty bool,
+	resizeQueue remotecommand.TerminalSizeQueue,
+) error {
+	req := c.typed.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: container,
+			Command:   command,
+			Stdin:     stdin != nil,
+			Stdout:    stdout != nil,
+			Stderr:    stderr != nil,
+			TTY:       tty,
+		}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(c.restConfig, "POST", req.URL())
+	if err != nil {
+		return fmt.Errorf("exec: %w", err)
+	}
+	return executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdin:             stdin,
+		Stdout:            stdout,
+		Stderr:            stderr,
+		Tty:               tty,
+		TerminalSizeQueue: resizeQueue,
+	})
+}
+
+// CopyFromContainer streams a single file from a container to w via exec cat.
+func (c *Client) CopyFromContainer(ctx context.Context, namespace, podName, container, srcPath string, w io.Writer) error {
+	var errBuf bytes.Buffer
+	err := c.ExecStream(ctx, namespace, podName, container,
+		[]string{"cat", srcPath},
+		nil, w, &errBuf, false, nil)
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, errBuf.String())
+	}
+	return nil
+}
+
+// CopyToContainer writes r to dstPath inside a container via exec.
+// Uses positional parameter in sh to avoid shell injection.
+func (c *Client) CopyToContainer(ctx context.Context, namespace, podName, container, dstPath string, r io.Reader) error {
+	var errBuf bytes.Buffer
+	err := c.ExecStream(ctx, namespace, podName, container,
+		[]string{"sh", "-c", `cat > "$1"`, "--", dstPath},
+		r, io.Discard, &errBuf, false, nil)
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, errBuf.String())
+	}
+	return nil
 }
 
 // stripManagedFields removes metadata.managedFields which is noisy in YAML output.

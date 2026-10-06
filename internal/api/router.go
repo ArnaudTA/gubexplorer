@@ -49,10 +49,27 @@ func NewRouter(client *k8s.Client, defaultNamespace, authUser, authPass, version
 		v1.POST("/:namespace/:resource/:name/scale", h.ScaleResource)
 		v1.POST("/:namespace/:resource/:name/restart", h.RestartResource)
 
-		// Pod-specific
+		// Pod-specific 4-segment routes — registering these creates a static "pods"
+		// node at depth 2 that takes priority over the :resource wildcard. We must
+		// therefore also register the 3-segment pod routes explicitly so that
+		// GET/PUT/DELETE /ns/pods/:name are routed to the generic CRUD handlers
+		// instead of returning gin's default "404 page not found" (plain text).
+		// injectPods adds the missing :resource="pods" param before the handler runs.
+		injectPods := func(c *gin.Context) {
+			c.Params = append(c.Params, gin.Param{Key: "resource", Value: "pods"})
+			c.Next()
+		}
+		v1.GET("/:namespace/pods/:name", injectPods, h.GetResource)
+		v1.PUT("/:namespace/pods/:name", injectPods, h.UpdateResource)
+		v1.DELETE("/:namespace/pods/:name", injectPods, h.DeleteResource)
+
 		v1.GET("/:namespace/pods/:name/containers", h.GetPodContainers)
 		v1.GET("/:namespace/pods/:name/logs", h.GetPodLogs)
 		v1.GET("/:namespace/pods/:name/logs/stream", h.StreamPodLogs)
+		// Exec (WebSocket) and file copy
+		v1.GET("/:namespace/pods/:name/exec", h.ExecPod)
+		v1.GET("/:namespace/pods/:name/cp", h.CopyFromPod)
+		v1.POST("/:namespace/pods/:name/cp", h.CopyToPod)
 	}
 
 	return r

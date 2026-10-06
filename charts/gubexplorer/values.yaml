@@ -3,7 +3,7 @@
 replicaCount: 1
 
 image:
-  repository: gubexplorer
+  repository: ghcr.io/arnaudta/gubexplorer
   pullPolicy: IfNotPresent
   tag: ""            # defaults to .Chart.AppVersion
 
