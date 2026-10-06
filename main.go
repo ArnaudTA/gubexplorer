@@ -24,6 +24,9 @@ func main() {
 	if *namespace == "" {
 		*namespace = detectNamespace()
 	}
+	// saNamespace is the namespace the pod actually runs in (never overridden by config).
+	saNamespace := envOr("POD_SA_NAMESPACE", detectNamespace())
+	serviceAccount := os.Getenv("POD_SERVICE_ACCOUNT")
 
 	client, err := k8s.NewClient(*kubeconfig)
 	if err != nil {
@@ -38,7 +41,7 @@ func main() {
 		log.Printf("starting gubexplorer on :%s  |  default namespace: %s  |  auth: enabled (user=%s)", *port, *namespace, *authUser)
 	}
 
-	router := api.NewRouter(client, *namespace, *authUser, *authPass, version)
+	router := api.NewRouter(client, *namespace, saNamespace, serviceAccount, *authUser, *authPass, version)
 	if err := router.Run(":" + *port); err != nil {
 		log.Fatalf("server error: %v", err)
 	}

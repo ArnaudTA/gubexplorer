@@ -20,9 +20,11 @@ import (
 
 // Handler holds shared dependencies for all HTTP handlers.
 type Handler struct {
-	client    *k8s.Client
-	defaultNS string
-	version   string
+	client         *k8s.Client
+	defaultNS      string
+	saNamespace    string // actual namespace the pod runs in (for RBAC hints)
+	serviceAccount string // name of the ServiceAccount the pod runs as
+	version        string
 }
 
 // ---------- Permissions ----------
@@ -67,6 +69,8 @@ func (h *Handler) ListCRDTypes(c *gin.Context) {
 func (h *Handler) GetConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"defaultNamespace": h.defaultNS,
+		"saNamespace":      h.saNamespace,
+		"serviceAccount":   h.serviceAccount,
 		"version":          h.version,
 		"host":             h.client.Host(),
 	})

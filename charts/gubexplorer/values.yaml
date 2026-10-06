@@ -100,3 +100,15 @@ securityContext:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# -- Extra Kubernetes resources to be deployed along with the release.
+# expressed as a map of YAML documents to be merged
+extraResources: {}
+# resourceA:
+#   apiVersion: v1
+#   kind: ConfigMap
+#   metadata: ...
+# resourceB:
+#   apiVersion: v1
+#   kind: ConfigMap
+#   metadata: ...

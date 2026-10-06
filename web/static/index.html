@@ -186,6 +186,11 @@
 
   <span class="cluster-info" id="cluster-info"></span>
 
+  <button class="btn btn-sm btn-outline-secondary px-2" id="btn-rbac-hint"
+          onclick="toggleRbacHint()" title="Manifeste d'accès RBAC pour ce namespace">
+    <i class="fas fa-shield-halved"></i>
+  </button>
+
   <div class="d-flex align-items-center gap-2 ms-auto">
     <div class="form-check form-switch mb-0">
       <input class="form-check-input" type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
@@ -221,6 +226,8 @@
     </div>
     <p class="text-muted text-center py-4 d-none" id="no-results-msg">Aucun résultat pour ce filtre.</p>
   </div>
+  <!-- RBAC hint: shown by showForbidden() or the topbar button -->
+  <div id="rbac-hint" class="d-none mt-3 mb-4"></div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ YAML MODAL -->
@@ -437,6 +444,7 @@ const S = {
   del: { ns:'', type:'', name:'' },
   scale: { ns:'', type:'', name:'' },
   logs: { ns:'', pod:'', sse: null },
+  sa: { name: '', namespace: '' },   // ServiceAccount identity of the running pod
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -767,6 +775,8 @@ async function init() {
     const cfg = await api('GET', '/config');
     document.getElementById('cluster-info').textContent = cfg.host;
     S.ns = cfg.defaultNamespace || 'default';
+    S.sa.name      = cfg.serviceAccount  || '';
+    S.sa.namespace = cfg.saNamespace     || S.ns;
   } catch(e) { console.warn('config error', e); }
 
   // Wire up the namespace combobox
@@ -994,7 +1004,7 @@ function showForbidden(type) {
   document.getElementById('resource-count').textContent = '–';
   document.getElementById('table-head').innerHTML = '';
   document.getElementById('table-body').innerHTML = `
-    <tr><td class="text-center py-5">
+    <tr><td class="text-center py-4">
       <i class="fas fa-lock fa-2x text-warning mb-3 d-block"></i>
       <div class="text-warning fw-semibold">Accès refusé</div>
       <div class="text-muted small mt-1">
@@ -1002,6 +1012,103 @@ function showForbidden(type) {
         <code>${labelFor(type)}</code> dans le namespace <code>${S.ns}</code>.
       </div>
     </td></tr>`;
+  showRbacHint();
+}
+
+// Populate and show #rbac-hint for the current namespace.
+function showRbacHint() {
+  const saName = S.sa.name || 'gubexplorer';
+  const yaml   = rbacHintYAML(S.ns);
+  const hint   = document.getElementById('rbac-hint');
+  hint.innerHTML = `
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <span class="text-muted small">
+        <i class="fas fa-shield-halved me-1"></i>
+        Manifeste d'accès à appliquer dans <code>${esc(S.ns)}</code> pour le
+        ServiceAccount <code>${esc(saName)}</code> :
+      </span>
+      <div class="d-flex gap-1">
+        <button class="btn btn-sm btn-outline-secondary px-2 py-0"
+                onclick="copyRbacHint()" title="Copier le YAML">
+          <i class="fas fa-copy"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-secondary px-2 py-0"
+                onclick="hideRbacHint()" title="Fermer">
+          <i class="fas fa-xmark"></i>
+        </button>
+      </div>
+    </div>
+    <div class="yaml-container">
+      <pre style="margin:0;max-height:none"><code id="rbac-hint-code" class="language-yaml">${esc(yaml)}</code></pre>
+    </div>`;
+  hint.classList.remove('d-none');
+  document.getElementById('btn-rbac-hint').classList.add('active');
+  hljs.highlightElement(document.getElementById('rbac-hint-code'));
+}
+
+function hideRbacHint() {
+  document.getElementById('rbac-hint').classList.add('d-none');
+  document.getElementById('btn-rbac-hint').classList.remove('active');
+}
+
+// Toggle the RBAC hint from the topbar button, refreshing content on open.
+function toggleRbacHint() {
+  if (document.getElementById('rbac-hint').classList.contains('d-none')) {
+    showRbacHint();
+  } else {
+    hideRbacHint();
+  }
+}
+
+// Build a pre-filled Role + RoleBinding YAML granting full gubexplorer access
+// to the running ServiceAccount in the given target namespace.
+function rbacHintYAML(targetNS) {
+  const saName = S.sa.name      || 'gubexplorer';
+  const saNS   = S.sa.namespace || 'default';
+  return `apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${saName}
+  namespace: ${targetNS}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, services, endpoints, configmaps,
+                secrets, serviceaccounts, persistentvolumeclaims, events]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${saName}
+  namespace: ${targetNS}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${saName}
+subjects:
+  - kind: ServiceAccount
+    name: ${saName}
+    namespace: ${saNS}`;
+}
+
+function copyRbacHint() {
+  navigator.clipboard.writeText(rbacHintYAML(S.ns))
+    .then(() => toast('YAML copié'));
 }
 
 function renderTable() {
@@ -1011,6 +1118,7 @@ function renderTable() {
   document.getElementById('resource-title').textContent = labelFor(type);
   document.getElementById('resource-count').textContent = S.filteredItems.length;
   document.getElementById('filter-input').value = '';
+  document.getElementById('rbac-hint').classList.add('d-none');
 
   const cols = getColumns(type);
   const actions = ACTIONS[type] || ['yaml','delete'];
