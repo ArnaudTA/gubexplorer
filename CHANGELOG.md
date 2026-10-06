@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/ArnaudTA/gubexplorer/compare/v1.1.0...v1.1.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* add branches-ignore for release-please branches in CI workflow ([fbdfc89](https://github.com/ArnaudTA/gubexplorer/commit/fbdfc89202a1bd94b3901406706d464f7e8061bc))
+* add health check endpoint and update probe paths ([459f94d](https://github.com/ArnaudTA/gubexplorer/commit/459f94d7e83215099c9b20ef072ec87e43a6125c))
+
 ## [1.1.0](https://github.com/ArnaudTA/gubexplorer/compare/v1.0.0...v1.1.0) (2026-10-06)
 
 
