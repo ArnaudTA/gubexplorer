@@ -1,0 +1,102 @@
+# Default values for gubexplorer
+
+replicaCount: 1
+
+image:
+  repository: gubexplorer
+  pullPolicy: IfNotPresent
+  tag: ""            # defaults to .Chart.AppVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# ── Authentication ───────────────────────────────────────────────────────
+auth:
+  # Basic Authentication is mandatory — the app refuses to start without credentials.
+  enabled: true
+  # Username (required)
+  username: "admin"
+  # Password (required).
+  # In production, use existingSecret to avoid storing the password in values.
+  password: ""
+  # Reference an existing Secret (keys: username, password).
+  # When set, username/password above are ignored.
+  existingSecret: ""
+
+# ── Service account & RBAC ──────────────────────────────────────────────
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+rbac:
+  create: true
+  # true  → ClusterRole + ClusterRoleBinding (can list all namespaces & resources cluster-wide)
+  # false → Role + RoleBinding (namespace-scoped only)
+  clusterScope: true
+
+# ── Application config ───────────────────────────────────────────────────
+config:
+  # Default namespace shown in the UI on startup.
+  # Leave empty to auto-detect from the pod's service-account namespace.
+  defaultNamespace: ""
+  # Gin log mode: debug | release
+  logMode: "release"
+
+# ── Kubeconfig mount (dev / external cluster) ────────────────────────────
+# Enable this when the app should authenticate via a kubeconfig file
+# instead of the in-cluster service-account token.
+# Mutually exclusive with in-cluster RBAC (rbac.clusterScope).
+kubeconfig:
+  # Set to true to mount a kubeconfig file into the pod.
+  enabled: false
+  # If set, the named Secret (key: "kubeconfig") is used directly.
+  # The secret must already exist in the release namespace.
+  existingSecret: ""
+  # Raw kubeconfig content; used only when existingSecret is empty.
+  # Populated via --set-file kubeconfig.value=~/.kube/config
+  value: ""
+
+# ── Service ─────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 8080
+
+# ── Ingress ─────────────────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hostname: gubexplorer.example.com
+  tls: false
+  tlsSecretName: ""
+
+# ── Resources ───────────────────────────────────────────────────────────
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# ── Pod settings ────────────────────────────────────────────────────────
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  fsGroup: 65534
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ── Scheduling ──────────────────────────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}

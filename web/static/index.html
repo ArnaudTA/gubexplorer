@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="fr" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kube Explorer</title>
+
+  <!-- Bootstrap 5.3 dark -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <!-- Font Awesome 6 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <!-- highlight.js YAML theme -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+
+  <style>
+    :root {
+      --topbar-h: 52px;
+      --sidebar-w: 230px;
+      --bg-base: #0d1117;
+      --bg-card: #161b22;
+      --bg-hover: #21262d;
+      --border: #30363d;
+      --text-muted: #8b949e;
+      --text-main: #e6edf3;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg-base); color: var(--text-main); }
+
+    /* ── Top bar ── */
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: var(--topbar-h);
+      background: var(--bg-base);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+      z-index: 1000;
+    }
+    #topbar .brand { font-size: 1.05rem; font-weight: 700; color: var(--text-main); letter-spacing: -.3px; }
+    #topbar .cluster-info { font-size: .75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      position: fixed; top: var(--topbar-h); left: 0; bottom: 0;
+      width: var(--sidebar-w);
+      background: var(--bg-base);
+      border-right: 1px solid var(--border);
+      overflow-y: auto; overflow-x: hidden;
+      padding: 8px 0 24px;
+    }
+    .sb-group-label {
+      padding: 12px 14px 4px;
+      font-size: .68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .08em; color: var(--text-muted);
+    }
+    .sb-item {
+      display: flex; align-items: center; gap: 9px;
+      padding: 5px 14px; margin: 1px 6px;
+      border-radius: 6px; cursor: pointer;
+      font-size: .83rem; color: #adb5bd;
+      transition: background .12s, color .12s;
+      text-decoration: none;
+      user-select: none;
+    }
+    .sb-item:hover { background: var(--bg-hover); color: var(--text-main); }
+    .sb-item.active { background: #1f6feb22; color: #58a6ff; }
+    .sb-item .icon { width: 16px; text-align: center; opacity: .75; font-size: .8rem; }
+    .sb-item.active .icon { opacity: 1; }
+    .sb-badge { margin-left: auto; font-size: .68rem; background: #30363d; color: #8b949e; padding: 1px 6px; border-radius: 8px; }
+    /* Sidebar item with RBAC denied */
+    .sb-item-denied { opacity: 0.38; cursor: not-allowed !important; }
+    .sb-item-denied:hover { background: transparent !important; color: #adb5bd !important; }
+    .sb-item-denied .sb-lock { display: inline-block !important; }
+    /* CRD group header (collapsible) */
+    .sb-crd-group { cursor: pointer; }
+    .sb-crd-children { padding-left: 8px; }
+    .sb-crd-children .sb-item { padding-left: 22px; font-size: .8rem; }
+    .sb-crd-chevron { margin-left: auto; font-size: .6rem; color: var(--text-muted); transition: transform .18s; }
+    .sb-crd-chevron.open { transform: rotate(180deg); }
+    /* CRD source badge */
+    .src-badge { font-size: .6rem; padding: 1px 5px; border-radius: 6px; background:#1f3a1a; color:#3fb950; margin-left:4px; }
+    .sb-lock { display: none; font-size: .65rem; color: #6e7681; margin-left: 4px; }
+
+    /* ── Main ── */
+    #main {
+      position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: 0; bottom: 0;
+      overflow-y: auto; padding: 20px 24px;
+    }
+
+    /* ── Table ── */
+    .resource-table { font-size: .85rem; }
+    .resource-table thead th {
+      font-size: .72rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em;
+      color: var(--text-muted); border-bottom-color: var(--border);
+      white-space: nowrap; padding: 8px 12px;
+    }
+    .resource-table tbody td { padding: 7px 12px; border-color: var(--border); vertical-align: middle; }
+    .resource-table tbody tr:hover td { background: #161b22; }
+    .resource-name { font-family: 'Fira Code', monospace; font-size: .82rem; color: #58a6ff; cursor: pointer; }
+    .resource-name:hover { text-decoration: underline; }
+
+    /* Status badges */
+    .badge-running    { background: #196c2e; color: #3fb950; }
+    .badge-succeeded  { background: #0e4429; color: #56d364; }
+    .badge-pending    { background: #3d2b0a; color: #d29922; }
+    .badge-failed     { background: #3d0a0a; color: #f85149; }
+    .badge-terminating{ background: #2d1700; color: #e3b341; }
+    .badge-unknown    { background: #21262d; color: #8b949e; }
+    .badge-active     { background: #0e2d4f; color: #58a6ff; }
+    .badge-bound      { background: #0e4429; color: #56d364; }
+    .badge-released   { background: #3d2b0a; color: #d29922; }
+    .kbadge { display: inline-block; font-size: .72rem; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+
+    /* YAML */
+    .yaml-container { background: #0d1117; border-radius: 6px; overflow: hidden; }
+    .yaml-container pre { margin: 0; max-height: 62vh; overflow: auto; }
+    .yaml-container pre code { font-size: .82rem; }
+    #yaml-editor { width: 100%; height: 62vh; background: #0d1117; color: #e6edf3; font-family: 'Fira Code', 'Courier New', monospace; font-size: .82rem; border: none; outline: none; padding: 12px; resize: none; }
+
+    /* Logs */
+    #log-output {
+      background: #0a0f14; color: #c9d1d9;
+      font-family: 'Fira Code', 'Courier New', monospace;
+      font-size: .78rem; line-height: 1.55;
+      height: 62vh; overflow-y: auto; padding: 12px 16px;
+      white-space: pre-wrap; word-break: break-all;
+    }
+
+    /* Empty state */
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+    .empty-state i { font-size: 3rem; margin-bottom: 16px; opacity: .4; }
+
+    /* Filter input */
+    .filter-input { background: var(--bg-card) !important; border-color: var(--border) !important; color: var(--text-main) !important; font-size: .83rem; }
+    .filter-input::placeholder { color: var(--text-muted) !important; }
+    .filter-input:focus { box-shadow: 0 0 0 2px #1f6feb44 !important; border-color: #1f6feb88 !important; }
+
+    /* Toast */
+    .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; }
+    .toast { font-size: .85rem; }
+
+    /* Modal */
+    .modal-content { background: var(--bg-card); border: 1px solid var(--border); }
+    .modal-header { border-bottom-color: var(--border); }
+    .modal-footer { border-top-color: var(--border); }
+
+    /* Spinner */
+    .spin { animation: spin 1s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════ TOP BAR -->
+<nav id="topbar">
+  <span class="brand">⚓ Kube Explorer</span>
+  <div class="vr mx-1" style="border-color:#30363d"></div>
+
+  <div class="d-flex align-items-center gap-2">
+    <label class="mb-0" style="font-size:.78rem;color:var(--text-muted)">Namespace</label>
+    <div class="position-relative">
+      <input type="text" id="ns-input" class="form-control form-control-sm filter-input"
+             list="ns-datalist" placeholder="namespace…" style="width:180px"
+             autocomplete="off">
+      <datalist id="ns-datalist"></datalist>
+    </div>
+    <!-- Permission badge: shows a warning when rules are incomplete or unavailable -->
+    <span id="perm-badge" class="d-none" title=""
+          style="font-size:.7rem;cursor:default">
+      <i class="fas fa-circle-exclamation text-warning"></i>
+    </span>
+  </div>
+
+  <span class="cluster-info" id="cluster-info"></span>
+
+  <div class="d-flex align-items-center gap-2 ms-auto">
+    <div class="form-check form-switch mb-0">
+      <input class="form-check-input" type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
+      <label class="form-check-label" for="auto-refresh" style="font-size:.78rem;color:var(--text-muted)">Auto-refresh</label>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary px-2" onclick="refreshCurrent()" title="Rafraîchir">
+      <i class="fas fa-rotate-right" id="refresh-icon"></i>
+    </button>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════ SIDEBAR -->
+<div id="sidebar"></div>
+
+<!-- ══════════════════════════════════════════════════════════ MAIN -->
+<div id="main">
+  <div class="empty-state" id="empty-state">
+    <i class="fas fa-dharmachakra"></i>
+    <p>Sélectionner un type de ressource dans la barre latérale.</p>
+  </div>
+  <div id="resource-view" class="d-none">
+    <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+      <h6 class="mb-0" id="resource-title" style="font-weight:700"></h6>
+      <span class="badge bg-secondary" id="resource-count">0</span>
+      <input type="text" class="form-control form-control-sm filter-input ms-auto" id="filter-input"
+             placeholder="Filtrer…" style="max-width:220px" oninput="applyFilter()">
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover resource-table" id="resource-table">
+        <thead id="table-head"></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+    <p class="text-muted text-center py-4 d-none" id="no-results-msg">Aucun résultat pour ce filtre.</p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ YAML MODAL -->
+<div class="modal fade" id="yaml-modal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <code class="fs-6" id="yaml-modal-title"></code>
+        <div class="ms-auto d-flex gap-2">
+          <button id="btn-toggle-edit" class="btn btn-sm btn-outline-warning" onclick="toggleYAMLEdit()">
+            <i class="fas fa-pen-to-square me-1"></i>Modifier
+          </button>
+          <button id="btn-save-yaml" class="btn btn-sm btn-success d-none" onclick="saveYAML()">
+            <i class="fas fa-floppy-disk me-1"></i>Sauvegarder
+          </button>
+          <button id="btn-cancel-edit" class="btn btn-sm btn-secondary d-none" onclick="cancelYAMLEdit()">Annuler</button>
+          <button type="button" class="btn-close ms-1" data-bs-dismiss="modal"></button>
+        </div>
+      </div>
+      <div class="modal-body p-0 yaml-container">
+        <div id="yaml-view-wrap"><pre><code id="yaml-code" class="language-yaml"></code></pre></div>
+        <textarea id="yaml-editor" class="d-none" spellcheck="false"></textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ LOGS MODAL -->
+<div class="modal fade" id="logs-modal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <span class="fw-bold" id="logs-modal-title">Logs</span>
+        <div class="ms-auto d-flex gap-2 align-items-center">
+          <select id="container-select" class="form-select form-select-sm filter-input" style="width:170px" onchange="reloadLogs()"></select>
+          <select id="tail-select" class="form-select form-select-sm filter-input" style="width:100px" onchange="reloadLogs()">
+            <option value="100">100 lignes</option>
+            <option value="500" selected>500 lignes</option>
+            <option value="1000">1000 lignes</option>
+            <option value="5000">5000 lignes</option>
+          </select>
+          <button id="btn-follow" class="btn btn-sm btn-outline-success" onclick="toggleFollow()">
+            <i class="fas fa-play me-1"></i>Follow
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="copyLogs()" title="Copier">
+            <i class="fas fa-copy"></i>
+          </button>
+          <button type="button" class="btn-close ms-1" data-bs-dismiss="modal"></button>
+        </div>
+      </div>
+      <div class="modal-body p-0">
+        <div id="log-output"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SCALE MODAL -->
+<div class="modal fade" id="scale-modal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title">Scaler — <code id="scale-name"></code></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label small">Réplicas</label>
+        <input type="number" id="scale-value" class="form-control filter-input" min="0" max="999">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button class="btn btn-primary btn-sm" onclick="confirmScale()">Appliquer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ DELETE MODAL -->
+<div class="modal fade" id="delete-modal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title text-danger"><i class="fas fa-trash me-2"></i>Supprimer</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1">Supprimer <strong><code id="delete-name"></code></strong> ?</p>
+        <p class="text-warning small mb-0"><i class="fas fa-triangle-exclamation me-1"></i>Action irréversible.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmDelete()">Supprimer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ TOASTS -->
+<div class="toast-container">
+  <div id="toast-el" class="toast align-items-center border-0" role="alert">
+    <div class="d-flex">
+      <div class="toast-body" id="toast-msg"></div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Bootstrap JS + highlight.js -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+const S = {
+  ns: 'default',
+  resourceType: null,
+  items: [],
+  filteredItems: [],
+  permissions: null,   // null = unknown (assume allowed); {} = checked but empty
+  permIncomplete: false,
+  autoTimer: null,
+  yaml: { ns:'', type:'', name:'', editing: false },
+  del: { ns:'', type:'', name:'' },
+  scale: { ns:'', type:'', name:'' },
+  logs: { ns:'', pod:'', sse: null },
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RESOURCE GROUPS (sidebar)
+// ═══════════════════════════════════════════════════════════════════════
+const GROUPS = []; // loaded from API
+
+// ═══════════════════════════════════════════════════════════════════════
+//  COLUMN & ACTION CONFIG
+// ═══════════════════════════════════════════════════════════════════════
+const ACTIONS = {
+  pods:                    ['yaml','logs','delete'],
+  deployments:             ['yaml','scale','restart','delete'],
+  statefulsets:            ['yaml','scale','restart','delete'],
+  daemonsets:              ['yaml','restart','delete'],
+  replicasets:             ['yaml','scale','delete'],
+  jobs:                    ['yaml','delete'],
+  cronjobs:                ['yaml','delete'],
+  services:                ['yaml','delete'],
+  ingresses:               ['yaml','delete'],
+  networkpolicies:         ['yaml','delete'],
+  configmaps:              ['yaml','delete'],
+  secrets:                 ['yaml','delete'],
+  persistentvolumeclaims:  ['yaml','delete'],
+  persistentvolumes:       ['yaml','delete'],
+  serviceaccounts:         ['yaml','delete'],
+  roles:                   ['yaml','delete'],
+  rolebindings:            ['yaml','delete'],
+  horizontalpodautoscalers:['yaml','delete'],
+  events:                  ['yaml'],
+  nodes:                   ['yaml'],
+};
+
+function getColumns(type) {
+  const age = r => ageStr(r.metadata?.creationTimestamp);
+  const name = r => r.metadata?.name;
+  switch(type) {
+    case 'pods': return [
+      { label:'Name',     fn: name,  cls:'resource-name' },
+      { label:'Ready',    fn: r => podReady(r) },
+      { label:'Status',   fn: r => podStatusBadge(r), raw:true },
+      { label:'Restarts', fn: r => podRestarts(r) },
+      { label:'Age',      fn: age },
+      { label:'IP',       fn: r => r.status?.podIP||'-' },
+      { label:'Node',     fn: r => r.spec?.nodeName||'-' },
+    ];
+    case 'deployments': return [
+      { label:'Name',       fn: name, cls:'resource-name' },
+      { label:'Ready',      fn: r => `${r.status?.readyReplicas||0}/${r.spec?.replicas||0}` },
+      { label:'Up-to-date', fn: r => r.status?.updatedReplicas||0 },
+      { label:'Available',  fn: r => r.status?.availableReplicas||0 },
+      { label:'Age',        fn: age },
+      { label:'Image',      fn: r => shortImage(r.spec?.template?.spec?.containers?.[0]?.image) },
+    ];
+    case 'statefulsets': return [
+      { label:'Name',  fn: name, cls:'resource-name' },
+      { label:'Ready', fn: r => `${r.status?.readyReplicas||0}/${r.spec?.replicas||0}` },
+      { label:'Age',   fn: age },
+      { label:'Image', fn: r => shortImage(r.spec?.template?.spec?.containers?.[0]?.image) },
+    ];
+    case 'daemonsets': return [
+      { label:'Name',      fn: name, cls:'resource-name' },
+      { label:'Desired',   fn: r => r.status?.desiredNumberScheduled||0 },
+      { label:'Ready',     fn: r => r.status?.numberReady||0 },
+      { label:'Available', fn: r => r.status?.numberAvailable||0 },
+      { label:'Age',       fn: age },
+    ];
+    case 'replicasets': return [
+      { label:'Name',     fn: name, cls:'resource-name' },
+      { label:'Desired',  fn: r => r.spec?.replicas||0 },
+      { label:'Ready',    fn: r => r.status?.readyReplicas||0 },
+      { label:'Available',fn: r => r.status?.availableReplicas||0 },
+      { label:'Age',      fn: age },
+    ];
+    case 'jobs': return [
+      { label:'Name',       fn: name, cls:'resource-name' },
+      { label:'Completions',fn: r => `${r.status?.succeeded||0}/${r.spec?.completions||1}` },
+      { label:'Duration',   fn: r => jobDuration(r) },
+      { label:'Age',        fn: age },
+    ];
+    case 'cronjobs': return [
+      { label:'Name',         fn: name, cls:'resource-name' },
+      { label:'Schedule',     fn: r => `<code>${r.spec?.schedule}</code>`, raw:true },
+      { label:'Suspend',      fn: r => r.spec?.suspend ? '<span class="kbadge badge-pending">true</span>' : '<span class="kbadge badge-running">false</span>', raw:true },
+      { label:'Active',       fn: r => r.status?.active?.length||0 },
+      { label:'Last schedule',fn: r => r.status?.lastScheduleTime ? ageStr(r.status.lastScheduleTime) : '-' },
+      { label:'Age',          fn: age },
+    ];
+    case 'services': return [
+      { label:'Name',       fn: name, cls:'resource-name' },
+      { label:'Type',       fn: r => r.spec?.type||'-' },
+      { label:'ClusterIP',  fn: r => r.spec?.clusterIP||'-' },
+      { label:'ExternalIP', fn: r => (r.status?.loadBalancer?.ingress||[]).map(i=>i.ip||i.hostname).join(', ')||'<none>' },
+      { label:'Ports',      fn: r => (r.spec?.ports||[]).map(p=>`${p.port}/${p.protocol||'TCP'}`).join(', ')||'-' },
+      { label:'Age',        fn: age },
+    ];
+    case 'ingresses': return [
+      { label:'Name',  fn: name, cls:'resource-name' },
+      { label:'Class', fn: r => r.spec?.ingressClassName||'-' },
+      { label:'Hosts', fn: r => (r.spec?.rules||[]).map(r=>r.host||'*').join(', ')||'-' },
+      { label:'Address',fn: r => (r.status?.loadBalancer?.ingress||[]).map(i=>i.ip||i.hostname).join(', ')||'-' },
+      { label:'Age',   fn: age },
+    ];
+    case 'configmaps': return [
+      { label:'Name', fn: name, cls:'resource-name' },
+      { label:'Keys', fn: r => Object.keys(r.data||{}).length },
+      { label:'Age',  fn: age },
+    ];
+    case 'secrets': return [
+      { label:'Name', fn: name, cls:'resource-name' },
+      { label:'Type', fn: r => r.type||'-' },
+      { label:'Age',  fn: age },
+    ];
+    case 'persistentvolumeclaims': return [
+      { label:'Name',        fn: name, cls:'resource-name' },
+      { label:'Status',      fn: r => pvcStatusBadge(r.status?.phase), raw:true },
+      { label:'Volume',      fn: r => r.spec?.volumeName||'-' },
+      { label:'Capacity',    fn: r => r.status?.capacity?.storage||r.spec?.resources?.requests?.storage||'-' },
+      { label:'Access Modes',fn: r => (r.spec?.accessModes||[]).join(', ')||'-' },
+      { label:'Age',         fn: age },
+    ];
+    case 'persistentvolumes': return [
+      { label:'Name',        fn: name, cls:'resource-name' },
+      { label:'Capacity',    fn: r => r.spec?.capacity?.storage||'-' },
+      { label:'Access Modes',fn: r => (r.spec?.accessModes||[]).join(', ')||'-' },
+      { label:'Reclaim',     fn: r => r.spec?.persistentVolumeReclaimPolicy||'-' },
+      { label:'Status',      fn: r => pvcStatusBadge(r.status?.phase), raw:true },
+      { label:'Claim',       fn: r => r.spec?.claimRef ? `${r.spec.claimRef.namespace}/${r.spec.claimRef.name}` : '-' },
+      { label:'Age',         fn: age },
+    ];
+    case 'serviceaccounts': return [
+      { label:'Name',    fn: name, cls:'resource-name' },
+      { label:'Secrets', fn: r => (r.secrets||[]).length },
+      { label:'Age',     fn: age },
+    ];
+    case 'roles': case 'rolebindings': return [
+      { label:'Name', fn: name, cls:'resource-name' },
+      { label:'Age',  fn: age },
+    ];
+    case 'horizontalpodautoscalers': return [
+      { label:'Name',      fn: name, cls:'resource-name' },
+      { label:'Reference', fn: r => `${r.spec?.scaleTargetRef?.kind}/${r.spec?.scaleTargetRef?.name}` },
+      { label:'Min',       fn: r => r.spec?.minReplicas||1 },
+      { label:'Max',       fn: r => r.spec?.maxReplicas||'-' },
+      { label:'Replicas',  fn: r => r.status?.currentReplicas||'-' },
+      { label:'Age',       fn: age },
+    ];
+    case 'nodes': return [
+      { label:'Name',    fn: name, cls:'resource-name' },
+      { label:'Status',  fn: r => nodeStatusBadge(r), raw:true },
+      { label:'Roles',   fn: r => nodeRoles(r) },
+      { label:'Version', fn: r => r.status?.nodeInfo?.kubeletVersion||'-' },
+      { label:'Age',     fn: r => ageStr(r.metadata?.creationTimestamp) },
+    ];
+    case 'events': return [
+      { label:'Namespace', fn: r => r.metadata?.namespace||'-' },
+      { label:'Type',      fn: r => eventTypeBadge(r.type), raw:true },
+      { label:'Reason',    fn: r => r.reason||'-' },
+      { label:'Object',    fn: r => `${r.involvedObject?.kind}/${r.involvedObject?.name}` },
+      { label:'Message',   fn: r => `<span title="${esc(r.message||'')}">${truncate(r.message||'',80)}</span>`, raw:true },
+      { label:'Count',     fn: r => r.count||1 },
+      { label:'Age',       fn: r => ageStr(r.lastTimestamp||r.metadata?.creationTimestamp) },
+    ];
+    default: return [
+      { label:'Name', fn: name, cls:'resource-name' },
+      { label:'Age',  fn: r => ageStr(r.metadata?.creationTimestamp) },
+    ];
+  }
+  // ── Smart default for unknown / CRD types ──────────────────────────────
+  // Show Name + any scalar status/phase field from spec/status + Age.
+  return buildCRDColumns(type);
+}
+
+// buildCRDColumns creates column definitions for a custom resource type.
+// It derives extra columns from a representative item once we have data.
+function buildCRDColumns(type) {
+  const age = r => ageStr(r.metadata?.creationTimestamp);
+  const name = r => r.metadata?.name;
+  // Base columns always present
+  const base = [
+    { label: 'Name', fn: name, cls: 'resource-name' },
+  ];
+  // Dynamically add interesting scalar fields from spec/status on first render.
+  // We use a lazy sentinel: if S.items has data we can inspect the first item.
+  const extra = [];
+  if (S.items && S.items.length) {
+    const sample = S.items[0];
+    // Status phase
+    const phase = sample.status?.phase;
+    if (phase !== undefined) extra.push({ label: 'Phase', fn: r => r.status?.phase || '-', raw: false });
+    // Status ready / ready-like condition
+    const conditions = sample.status?.conditions;
+    if (Array.isArray(conditions) && conditions.length) {
+      extra.push({ label: 'Ready', fn: r => crdReadyBadge(r), raw: true });
+    }
+    // Spec replicas
+    if (sample.spec?.replicas !== undefined) {
+      extra.push({ label: 'Replicas', fn: r => `${r.status?.readyReplicas??'-'}/${r.spec?.replicas??'-'}` });
+    }
+    // Any other short scalar fields at spec/status top level (≤40 chars, not objects)
+    for (const key of Object.keys(sample.status || {}).slice(0, 4)) {
+      if (['phase','conditions','observedGeneration'].includes(key)) continue;
+      const val = sample.status[key];
+      if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+        const label = key.charAt(0).toUpperCase() + key.slice(1);
+        extra.push({ label, fn: r => String(r.status?.[key] ?? '-') });
+      }
+    }
+  }
+  return [...base, ...extra, { label: 'Age', fn: age }];
+}
+
+function crdReadyBadge(r) {
+  const conds = r.status?.conditions || [];
+  const ready = conds.find(c => c.type === 'Ready');
+  if (!ready) return '<span class="kbadge badge-unknown">-</span>';
+  const cls = ready.status === 'True' ? 'badge-running' : 'badge-failed';
+  return `<span class="kbadge ${cls}">${ready.status === 'True' ? 'Ready' : 'Not Ready'}</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════════════════════
+function ageStr(ts) {
+  if (!ts) return '-';
+  const diff = Date.now() - new Date(ts).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h';
+  return Math.floor(h / 24) + 'd';
+}
+
+function podReady(r) {
+  const cs = r.status?.containerStatuses || [];
+  return `${cs.filter(c=>c.ready).length}/${cs.length || r.spec?.containers?.length || 0}`;
+}
+
+function podStatus(r) {
+  if (r.metadata?.deletionTimestamp) return { text:'Terminating', cls:'badge-terminating' };
+  const cs = r.status?.containerStatuses || [];
+  for (const c of cs) {
+    const w = c.state?.waiting;
+    if (w?.reason === 'CrashLoopBackOff') return { text:'CrashLoopBackOff', cls:'badge-failed' };
+    if (w?.reason === 'ImagePullBackOff' || w?.reason === 'ErrImagePull') return { text: w.reason, cls:'badge-failed' };
+    if (c.state?.terminated?.reason === 'OOMKilled') return { text:'OOMKilled', cls:'badge-failed' };
+    if (w?.reason) return { text: w.reason, cls:'badge-pending' };
+  }
+  const phase = r.status?.phase || 'Unknown';
+  const map = { Running:'badge-running', Pending:'badge-pending', Succeeded:'badge-succeeded', Failed:'badge-failed' };
+  return { text: phase, cls: map[phase] || 'badge-unknown' };
+}
+function podStatusBadge(r) { const s=podStatus(r); return `<span class="kbadge ${s.cls}">${s.text}</span>`; }
+
+function podRestarts(r) {
+  return (r.status?.containerStatuses||[]).reduce((s,c)=>s+(c.restartCount||0),0);
+}
+
+function pvcStatusBadge(phase) {
+  const map = { Bound:'badge-bound', Released:'badge-released', Pending:'badge-pending', Lost:'badge-failed' };
+  return `<span class="kbadge ${map[phase]||'badge-unknown'}">${phase||'Unknown'}</span>`;
+}
+
+function nodeStatusBadge(r) {
+  const ready = (r.status?.conditions||[]).find(c=>c.type==='Ready');
+  if (ready?.status === 'True') return `<span class="kbadge badge-running">Ready</span>`;
+  return `<span class="kbadge badge-failed">NotReady</span>`;
+}
+
+function nodeRoles(r) {
+  const labels = r.metadata?.labels || {};
+  return Object.keys(labels)
+    .filter(k => k.startsWith('node-role.kubernetes.io/'))
+    .map(k => k.split('/')[1])
+    .join(', ') || '<none>';
+}
+
+function eventTypeBadge(type) {
+  const cls = type === 'Warning' ? 'badge-pending' : 'badge-active';
+  return `<span class="kbadge ${cls}">${type||'Normal'}</span>`;
+}
+
+function jobDuration(r) {
+  if (!r.status?.startTime) return '-';
+  const end = r.status?.completionTime ? new Date(r.status.completionTime) : new Date();
+  const diff = end - new Date(r.status.startTime);
+  return ageStr(new Date(Date.now() - diff).toISOString());
+}
+
+function shortImage(img) {
+  if (!img) return '-';
+  const parts = img.split('/');
+  return parts[parts.length - 1].length > 40 ? '…' + parts[parts.length - 1].slice(-38) : parts[parts.length - 1];
+}
+
+function truncate(s, n) { return s.length > n ? s.slice(0, n) + '…' : s; }
+function esc(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TOAST
+// ═══════════════════════════════════════════════════════════════════════
+function toast(msg, type='success') {
+  const el = document.getElementById('toast-el');
+  el.className = `toast align-items-center border-0 text-bg-${type}`;
+  document.getElementById('toast-msg').textContent = msg;
+  new bootstrap.Toast(el, { delay: 3000 }).show();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  API HELPERS
+// ═══════════════════════════════════════════════════════════════════════
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch('/api/v1' + path, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════════════
+async function init() {
+  try {
+    const cfg = await api('GET', '/config');
+    document.getElementById('cluster-info').textContent = cfg.host;
+    S.ns = cfg.defaultNamespace || 'default';
+  } catch(e) { console.warn('config error', e); }
+
+  // Wire up the namespace combobox
+  const nsInput = document.getElementById('ns-input');
+  nsInput.value = S.ns;
+  nsInput.addEventListener('change', () => changeNamespace(nsInput.value));
+  nsInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); changeNamespace(nsInput.value); nsInput.blur(); } });
+
+  await loadNamespaces();
+  await loadSidebar();
+  await Promise.all([loadPermissions(), loadCRDTypes()]);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  NAMESPACES
+// ═══════════════════════════════════════════════════════════════════════
+async function loadNamespaces() {
+  try {
+    const { namespaces } = await api('GET', '/namespaces');
+    const dl = document.getElementById('ns-datalist');
+    dl.innerHTML = namespaces.map(n => `<option value="${esc(n)}">`).join('');
+    // Keep input value in sync if it's not already set
+    const nsInput = document.getElementById('ns-input');
+    if (!nsInput.value) nsInput.value = S.ns;
+  } catch(e) { console.warn('namespace error', e); }
+}
+
+// changeNamespace is called from the combobox change/Enter events.
+async function changeNamespace(raw) {
+  const ns = raw.trim();
+  if (!ns || ns === S.ns) return;
+  S.ns = ns;
+  document.getElementById('ns-input').value = ns;
+  await loadPermissions();
+  if (S.resourceType) await loadResources();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PERMISSIONS
+// ═══════════════════════════════════════════════════════════════════════
+async function loadPermissions() {
+  const badge = document.getElementById('perm-badge');
+  try {
+    const { permissions, incomplete, error } = await api('GET', `/permissions/${S.ns}`);
+    S.permissions = (permissions && Object.keys(permissions).length) ? permissions : null;
+    S.permIncomplete = !!incomplete;
+    if (error || incomplete) {
+      badge.classList.remove('d-none');
+      badge.title = error || 'Règles RBAC incomplètes (évaluation partielle)';
+    } else {
+      badge.classList.add('d-none');
+    }
+  } catch(e) {
+    S.permissions = null;
+    S.permIncomplete = true;
+    badge.classList.remove('d-none');
+    badge.title = 'Impossible de vérifier les permissions : ' + e.message;
+  }
+  updateSidebarPermissions();
+}
+
+// Reflect current permissions on each sidebar item.
+function updateSidebarPermissions() {
+  document.querySelectorAll('.sb-item[data-type]').forEach(el => {
+    const type = el.dataset.type;
+    const p = S.permissions?.[type];
+    const denied = p && !p.canList;
+    el.classList.toggle('sb-item-denied', denied);
+    el.title = denied ? `Permission refusée pour ${type} (list)` : '';
+    const lock = el.querySelector('.sb-lock');
+    if (lock) lock.style.display = denied ? 'inline-block' : 'none';
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIDEBAR
+// ═══════════════════════════════════════════════════════════════════════
+async function loadSidebar() {
+  try {
+    const { groups } = await api('GET', '/resource-types');
+    const sb = document.getElementById('sidebar');
+    sb.innerHTML = groups.map(g => `
+      <div class="sb-group-label">${g.Label}</div>
+      ${(g.Resources||[]).map(r => `
+        <a class="sb-item" data-type="${r.Name}" onclick="selectResource('${r.Name}')">
+          <span class="icon"><i class="fas ${iconFor(r.Name)}"></i></span>
+          ${labelFor(r.Name)}
+          <i class="fas fa-lock sb-lock" style="display:none;font-size:.6rem;color:#6e7681;margin-left:4px"></i>
+          <span class="sb-badge" id="cnt-${r.Name}"></span>
+        </a>`).join('')}
+    `).join('');
+  } catch(e) { console.error('sidebar', e); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CRD DISCOVERY SIDEBAR
+// ═══════════════════════════════════════════════════════════════════════
+
+// Store CRD resource→kind mapping for label display
+const crdKindMap = {};
+
+async function loadCRDTypes() {
+  try {
+    const { groups, source } = await api('GET', '/crd-types');
+    if (!groups || !groups.length) return;
+
+    const sb = document.getElementById('sidebar');
+    const totalCRDs = groups.reduce((s, g) => s + g.resources.length, 0);
+    const srcBadge = source === 'discovery'
+      ? `<span class="src-badge" title="Listé via l'API discovery (accès aux CRDs refusé)">discovery</span>`
+      : '';
+
+    let html = `<div class="sb-group-label">Custom Resources <span class="sb-badge">${totalCRDs}</span>${srcBadge}</div>`;
+
+    for (const g of groups) {
+      const gid = 'crdg-' + g.group.replace(/[^a-zA-Z0-9]/g, '-');
+      // Short label: strip common suffixes
+      const shortGroup = g.group.replace(/\.k8s\.io$/, '').replace(/\.io$/, '');
+      html += `
+        <a class="sb-item sb-crd-group" onclick="toggleCRDGroup('${gid}')" title="${g.group}">
+          <span class="icon"><i class="fas fa-puzzle-piece"></i></span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px">${shortGroup}</span>
+          <i class="fas fa-chevron-down sb-crd-chevron" id="${gid}-chev"></i>
+        </a>
+        <div id="${gid}" class="sb-crd-children d-none">
+          ${g.resources.map(r => {
+            crdKindMap[r.name] = r.kind;
+            return `<a class="sb-item" data-type="${r.name}" data-crd="1"
+                       onclick="selectResource('${r.name}')">
+                <span class="icon"><i class="fas fa-cube"></i></span>
+                ${r.kind}
+                <i class="fas fa-lock sb-lock" style="display:none;font-size:.6rem;color:#6e7681;margin-left:4px"></i>
+                <span class="sb-badge" id="cnt-${r.name}"></span>
+              </a>`;
+          }).join('')}
+        </div>`;
+    }
+    sb.innerHTML += html;
+  } catch(e) { console.warn('crd-types', e); }
+}
+
+function toggleCRDGroup(gid) {
+  const el = document.getElementById(gid);
+  const chev = document.getElementById(gid + '-chev');
+  if (!el) return;
+  const open = !el.classList.contains('d-none');
+  el.classList.toggle('d-none', open);
+  if (chev) chev.classList.toggle('open', !open);
+}
+
+function iconFor(name) {
+  const m = {
+    pods:'fa-circle-dot',deployments:'fa-layer-group',statefulsets:'fa-database',
+    daemonsets:'fa-server',replicasets:'fa-clone',jobs:'fa-list-check',cronjobs:'fa-clock',
+    services:'fa-plug',ingresses:'fa-route',networkpolicies:'fa-shield-halved',
+    configmaps:'fa-file-lines',secrets:'fa-key',persistentvolumeclaims:'fa-hard-drive',
+    persistentvolumes:'fa-hdd',serviceaccounts:'fa-user-shield',roles:'fa-id-badge',
+    rolebindings:'fa-link',horizontalpodautoscalers:'fa-chart-line',events:'fa-bell',nodes:'fa-server',
+  };
+  return m[name] || 'fa-cube';
+}
+
+function labelFor(name) {
+  const m = {
+    pods:'Pods',deployments:'Deployments',statefulsets:'StatefulSets',daemonsets:'DaemonSets',
+    replicasets:'ReplicaSets',jobs:'Jobs',cronjobs:'CronJobs',services:'Services',
+    ingresses:'Ingresses',networkpolicies:'NetworkPolicies',configmaps:'ConfigMaps',
+    secrets:'Secrets',persistentvolumeclaims:'PVCs',persistentvolumes:'PersistentVolumes',
+    serviceaccounts:'ServiceAccounts',roles:'Roles',rolebindings:'RoleBindings',
+    horizontalpodautoscalers:'HPAs',events:'Events',nodes:'Nodes',
+  };
+  return m[name] || crdKindMap[name] || name;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RESOURCE LOADING & RENDERING
+// ═══════════════════════════════════════════════════════════════════════
+async function selectResource(type) {
+  // If permissions are known and list is denied, show a blocked message
+  const p = S.permissions?.[type];
+  if (p && !p.canList) {
+    showForbidden(type);
+    S.resourceType = type;
+    document.querySelectorAll('.sb-item').forEach(el => el.classList.toggle('active', el.dataset.type === type));
+    return;
+  }
+  S.resourceType = type;
+  document.querySelectorAll('.sb-item').forEach(el => el.classList.toggle('active', el.dataset.type === type));
+  await loadResources();
+}
+
+async function loadResources() {
+  if (!S.resourceType) return;
+  setRefreshSpin(true);
+  try {
+    const { items } = await api('GET', `/${S.ns}/${S.resourceType}`);
+    S.items = items || [];
+    S.filteredItems = [...S.items];
+    renderTable();
+    const cnt = document.getElementById(`cnt-${S.resourceType}`);
+    if (cnt) cnt.textContent = S.items.length;
+  } catch(e) {
+    if (e.message.toLowerCase().includes('forbidden') || e.message.includes('403')) {
+      showForbidden(S.resourceType);
+      // Mark the sidebar item as denied
+      const el = document.querySelector(`.sb-item[data-type="${S.resourceType}"]`);
+      if (el) {
+        el.classList.add('sb-item-denied');
+        const lock = el.querySelector('.sb-lock');
+        if (lock) lock.style.display = 'inline-block';
+      }
+    } else {
+      toast('Erreur: ' + e.message, 'danger');
+    }
+  } finally {
+    setRefreshSpin(false);
+  }
+}
+
+// Show a "permission denied" panel in the main content area.
+function showForbidden(type) {
+  document.getElementById('empty-state').classList.add('d-none');
+  document.getElementById('resource-view').classList.remove('d-none');
+  document.getElementById('resource-title').textContent = labelFor(type);
+  document.getElementById('resource-count').textContent = '–';
+  document.getElementById('table-head').innerHTML = '';
+  document.getElementById('table-body').innerHTML = `
+    <tr><td class="text-center py-5">
+      <i class="fas fa-lock fa-2x text-warning mb-3 d-block"></i>
+      <div class="text-warning fw-semibold">Accès refusé</div>
+      <div class="text-muted small mt-1">
+        Le ServiceAccount n'a pas le droit <code>list</code> sur
+        <code>${labelFor(type)}</code> dans le namespace <code>${S.ns}</code>.
+      </div>
+    </td></tr>`;
+}
+
+function renderTable() {
+  const type = S.resourceType;
+  document.getElementById('empty-state').classList.add('d-none');
+  document.getElementById('resource-view').classList.remove('d-none');
+  document.getElementById('resource-title').textContent = labelFor(type);
+  document.getElementById('resource-count').textContent = S.filteredItems.length;
+  document.getElementById('filter-input').value = '';
+
+  const cols = getColumns(type);
+  const actions = ACTIONS[type] || ['yaml','delete'];
+
+  // Header
+  document.getElementById('table-head').innerHTML = `<tr>${cols.map(c=>`<th>${c.label}</th>`).join('')}<th></th></tr>`;
+
+  // Body
+  const tbody = document.getElementById('table-body');
+  if (!S.filteredItems.length) {
+    tbody.innerHTML = `<tr><td colspan="${cols.length+1}" class="text-center text-muted py-5">Aucune ressource</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = S.filteredItems.map(r => {
+    const name = r.metadata?.name || '';
+    const cells = cols.map(c => {
+      let val;
+      try { val = c.fn(r); } catch(e) { val = '-'; }
+      if (c.raw) return `<td>${val}</td>`;
+      const cls = c.cls || '';
+      const onClick = c.cls === 'resource-name' ? `onclick="showYAML('${esc(name)}')"` : '';
+      return `<td><span class="${cls}" ${onClick}>${esc(String(val??'-'))}</span></td>`;
+    }).join('');
+    return `<tr>${cells}<td class="text-end">${buildActions(actions, r)}</td></tr>`;
+  }).join('');
+}
+
+function buildActions(actions, r) {
+  const name = r.metadata?.name || '';
+  // Resolve effective permissions for this resource type (null = unknown = assume all allowed)
+  const p = S.permissions?.[S.resourceType] ?? { canList:true, canGet:true, canUpdate:true, canDelete:true };
+
+  const items = actions.flatMap(a => {
+    switch(a) {
+      case 'yaml':
+        return p.canGet
+          ? [`<li><a class="dropdown-item" onclick="showYAML('${esc(name)}')"><i class="fas fa-code me-2"></i>YAML</a></li>`]
+          : [];
+      case 'logs':
+        return [`<li><a class="dropdown-item" onclick="showLogs('${esc(name)}')"><i class="fas fa-terminal me-2"></i>Logs</a></li>`];
+      case 'scale':
+        return p.canUpdate
+          ? [`<li><a class="dropdown-item" onclick="showScale('${esc(name)}',${r.spec?.replicas??1})"><i class="fas fa-up-right-and-down-left-from-center me-2"></i>Scaler</a></li>`]
+          : [];
+      case 'restart':
+        return p.canUpdate
+          ? [`<li><a class="dropdown-item" onclick="doRestart('${esc(name)}')"><i class="fas fa-rotate me-2"></i>Restart</a></li>`]
+          : [];
+      case 'delete':
+        return p.canDelete
+          ? [`<li><hr class="dropdown-divider"></li>`,
+             `<li><a class="dropdown-item text-danger" onclick="showDelete('${esc(name)}')"><i class="fas fa-trash me-2"></i>Supprimer</a></li>`]
+          : [];
+      default: return [];
+    }
+  });
+
+  if (!items.length) return '';
+  return `
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-secondary px-2 py-0" data-bs-toggle="dropdown">
+        <i class="fas fa-ellipsis-vertical"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end bg-dark border-secondary">${items.join('')}</ul>
+    </div>`;
+}
+
+function applyFilter() {
+  const q = document.getElementById('filter-input').value.toLowerCase();
+  S.filteredItems = q ? S.items.filter(r => JSON.stringify(r).toLowerCase().includes(q)) : [...S.items];
+  renderTable();
+}
+
+function setRefreshSpin(on) {
+  document.getElementById('refresh-icon').className = on ? 'fas fa-circle-notch spin' : 'fas fa-rotate-right';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUTO-REFRESH
+// ═══════════════════════════════════════════════════════════════════════
+function toggleAutoRefresh() {
+  if (document.getElementById('auto-refresh').checked) {
+    S.autoTimer = setInterval(loadResources, 10000);
+  } else {
+    clearInterval(S.autoTimer);
+    S.autoTimer = null;
+  }
+}
+
+function refreshCurrent() { loadResources(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  YAML MODAL
+// ═══════════════════════════════════════════════════════════════════════
+async function showYAML(name) {
+  S.yaml = { ns: S.ns, type: S.resourceType, name, editing: false };
+  document.getElementById('yaml-modal-title').textContent = `${S.resourceType}/${name}`;
+  document.getElementById('yaml-code').textContent = 'Chargement…';
+  document.getElementById('yaml-view-wrap').classList.remove('d-none');
+  document.getElementById('yaml-editor').classList.add('d-none');
+  document.getElementById('btn-toggle-edit').classList.remove('d-none');
+  document.getElementById('btn-save-yaml').classList.add('d-none');
+  document.getElementById('btn-cancel-edit').classList.add('d-none');
+  new bootstrap.Modal('#yaml-modal').show();
+  try {
+    const { yaml } = await api('GET', `/${S.yaml.ns}/${S.yaml.type}/${name}`);
+    document.getElementById('yaml-code').textContent = yaml;
+    hljs.highlightElement(document.getElementById('yaml-code'));
+    document.getElementById('yaml-editor').value = yaml;
+  } catch(e) {
+    document.getElementById('yaml-code').textContent = 'Erreur: ' + e.message;
+  }
+}
+
+function toggleYAMLEdit() {
+  S.yaml.editing = !S.yaml.editing;
+  document.getElementById('yaml-view-wrap').classList.toggle('d-none', S.yaml.editing);
+  document.getElementById('yaml-editor').classList.toggle('d-none', !S.yaml.editing);
+  document.getElementById('btn-toggle-edit').classList.toggle('d-none', S.yaml.editing);
+  document.getElementById('btn-save-yaml').classList.toggle('d-none', !S.yaml.editing);
+  document.getElementById('btn-cancel-edit').classList.toggle('d-none', !S.yaml.editing);
+}
+
+function cancelYAMLEdit() {
+  S.yaml.editing = false;
+  document.getElementById('yaml-view-wrap').classList.remove('d-none');
+  document.getElementById('yaml-editor').classList.add('d-none');
+  document.getElementById('btn-toggle-edit').classList.remove('d-none');
+  document.getElementById('btn-save-yaml').classList.add('d-none');
+  document.getElementById('btn-cancel-edit').classList.add('d-none');
+}
+
+async function saveYAML() {
+  const yaml = document.getElementById('yaml-editor').value;
+  try {
+    await api('PUT', `/${S.yaml.ns}/${S.yaml.type}/${S.yaml.name}`, { yaml });
+    toast('Ressource mise à jour avec succès');
+    cancelYAMLEdit();
+    document.getElementById('yaml-code').textContent = yaml;
+    hljs.highlightElement(document.getElementById('yaml-code'));
+    loadResources();
+  } catch(e) { toast('Erreur: ' + e.message, 'danger'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOGS MODAL
+// ═══════════════════════════════════════════════════════════════════════
+async function showLogs(podName) {
+  stopFollow();
+  S.logs = { ns: S.ns, pod: podName, sse: null };
+  document.getElementById('logs-modal-title').textContent = `Logs — ${podName}`;
+  document.getElementById('log-output').textContent = '';
+  document.getElementById('btn-follow').innerHTML = '<i class="fas fa-play me-1"></i>Follow';
+  new bootstrap.Modal('#logs-modal').show();
+
+  try {
+    const { containers } = await api('GET', `/${S.ns}/pods/${podName}/containers`);
+    const sel = document.getElementById('container-select');
+    sel.innerHTML = containers.map(c=>`<option>${c}</option>`).join('');
+  } catch(e) { console.warn(e); }
+
+  await reloadLogs();
+}
+
+async function reloadLogs() {
+  stopFollow();
+  const container = document.getElementById('container-select').value;
+  const tail = document.getElementById('tail-select').value;
+  document.getElementById('log-output').textContent = 'Chargement…';
+  try {
+    const { logs } = await api('GET', `/${S.logs.ns}/pods/${S.logs.pod}/logs?container=${encodeURIComponent(container)}&tail=${tail}`);
+    document.getElementById('log-output').textContent = logs || '(vide)';
+    scrollLogsToBottom();
+  } catch(e) {
+    document.getElementById('log-output').textContent = 'Erreur: ' + e.message;
+  }
+}
+
+let following = false;
+function toggleFollow() {
+  if (following) {
+    stopFollow();
+  } else {
+    startFollow();
+  }
+}
+
+function startFollow() {
+  following = true;
+  document.getElementById('btn-follow').innerHTML = '<i class="fas fa-stop me-1"></i>Stop';
+  document.getElementById('log-output').textContent = '';
+  const container = document.getElementById('container-select').value;
+  const url = `/api/v1/${S.logs.ns}/pods/${S.logs.pod}/logs/stream?container=${encodeURIComponent(container)}`;
+  const sse = new EventSource(url);
+  S.logs.sse = sse;
+  const out = document.getElementById('log-output');
+  sse.addEventListener('log', e => {
+    out.textContent += e.data + '\n';
+    scrollLogsToBottom();
+  });
+  sse.addEventListener('error', e => {
+    stopFollow();
+    toast('Stream terminé', 'secondary');
+  });
+}
+
+function stopFollow() {
+  following = false;
+  if (S.logs.sse) { S.logs.sse.close(); S.logs.sse = null; }
+  document.getElementById('btn-follow').innerHTML = '<i class="fas fa-play me-1"></i>Follow';
+}
+
+function scrollLogsToBottom() {
+  const el = document.getElementById('log-output');
+  el.scrollTop = el.scrollHeight;
+}
+
+function copyLogs() {
+  navigator.clipboard.writeText(document.getElementById('log-output').textContent)
+    .then(() => toast('Logs copiés'));
+}
+
+// Close SSE when modal closes
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('logs-modal').addEventListener('hidden.bs.modal', stopFollow);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SCALE MODAL
+// ═══════════════════════════════════════════════════════════════════════
+function showScale(name, current) {
+  S.scale = { ns: S.ns, type: S.resourceType, name };
+  document.getElementById('scale-name').textContent = name;
+  document.getElementById('scale-value').value = current;
+  new bootstrap.Modal('#scale-modal').show();
+}
+
+async function confirmScale() {
+  const replicas = parseInt(document.getElementById('scale-value').value, 10);
+  if (isNaN(replicas) || replicas < 0) { toast('Valeur invalide', 'warning'); return; }
+  try {
+    await api('POST', `/${S.scale.ns}/${S.scale.type}/${S.scale.name}/scale`, { replicas });
+    toast(`${S.scale.name} scalé à ${replicas} réplica(s)`);
+    bootstrap.Modal.getInstance('#scale-modal').hide();
+    loadResources();
+  } catch(e) { toast('Erreur: ' + e.message, 'danger'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DELETE MODAL
+// ═══════════════════════════════════════════════════════════════════════
+function showDelete(name) {
+  S.del = { ns: S.ns, type: S.resourceType, name };
+  document.getElementById('delete-name').textContent = name;
+  new bootstrap.Modal('#delete-modal').show();
+}
+
+async function confirmDelete() {
+  try {
+    await api('DELETE', `/${S.del.ns}/${S.del.type}/${S.del.name}`);
+    toast(`${S.del.name} supprimé`);
+    bootstrap.Modal.getInstance('#delete-modal').hide();
+    loadResources();
+  } catch(e) { toast('Erreur: ' + e.message, 'danger'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RESTART
+// ═══════════════════════════════════════════════════════════════════════
+async function doRestart(name) {
+  try {
+    await api('POST', `/${S.ns}/${S.resourceType}/${name}/restart`);
+    toast(`Restart déclenché pour ${name}`);
+    setTimeout(loadResources, 1500);
+  } catch(e) { toast('Erreur: ' + e.message, 'danger'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.key === 'F5' || (e.key === 'r' && e.ctrlKey)) { e.preventDefault(); refreshCurrent(); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+init();
+</script>
+</body>
+</html>
