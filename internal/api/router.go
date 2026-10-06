@@ -16,12 +16,15 @@ func NewRouter(client *k8s.Client, defaultNamespace, saNamespace, serviceAccount
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
-	// Basic Auth – applied globally before any route, so it covers UI + API.
+	h := &Handler{client: client, defaultNS: defaultNamespace, saNamespace: saNamespace, serviceAccount: serviceAccount, version: version}
+
+	// Health/probe endpoint — registered BEFORE BasicAuth so Kubernetes probes bypass auth.
+	r.GET("/healthz", h.Healthz)
+
+	// Basic Auth — applied to all routes registered after this point (UI + API).
 	if authUser != "" && authPass != "" {
 		r.Use(gin.BasicAuth(gin.Accounts{authUser: authPass}))
 	}
-
-	h := &Handler{client: client, defaultNS: defaultNamespace, saNamespace: saNamespace, serviceAccount: serviceAccount, version: version}
 
 	// Serve embedded static files
 	r.GET("/", func(c *gin.Context) {

@@ -27,6 +27,14 @@ type Handler struct {
 	version        string
 }
 
+// ---------- Health ----------
+
+// Healthz is a lightweight probe endpoint that bypasses authentication.
+// It only checks that the HTTP server is alive — no Kubernetes connectivity required.
+func (h *Handler) Healthz(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 // ---------- Permissions ----------
 
 // GetPermissions returns per-resource-type RBAC permissions for a namespace
