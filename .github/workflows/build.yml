@@ -60,6 +60,5 @@ jobs:
         push: true
         pull: true
         context: .
-        file: backend/Dockerfile
-        target: prod
+        file: Dockerfile
         tags: ${{ steps.get_version.outputs.tags }}

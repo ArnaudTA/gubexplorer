@@ -11,6 +11,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
   <!-- highlight.js YAML theme -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <!-- xterm.js terminal emulator -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@4.19.0/css/xterm.css">
 
   <style>
     :root {
@@ -87,6 +89,12 @@
     }
 
     /* ── Table ── */
+    .table-responsive { flex: 1; }
+    #resource-view {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
     .resource-table { font-size: .85rem; }
     .resource-table thead th {
       font-size: .72rem; font-weight: 600;
@@ -147,6 +155,11 @@
     /* Spinner */
     .spin { animation: spin 1s linear infinite; display: inline-block; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Terminal */
+    #terminal-container { width: 100%; height: 100%; background: #0d1117; }
+    .xterm { height: 100%; padding: 6px; }
+    .xterm-viewport { border-radius: 0 !important; }
   </style>
 </head>
 <body>
@@ -211,6 +224,95 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ YAML MODAL -->
+
+<!-- ══════════════════════════════════════════════════════════ EXEC MODAL -->
+<div class="modal fade" id="exec-modal" tabindex="-1">
+  <div class="modal-dialog modal-xl" style="max-width:92vw">
+    <div class="modal-content" style="height:85vh">
+      <div class="modal-header py-2">
+        <span class="fw-bold"><i class="fas fa-terminal me-2 text-success"></i>Exec — <code id="exec-pod-name"></code></span>
+        <div class="ms-auto d-flex gap-2 align-items-center">
+          <select id="exec-container" class="form-select form-select-sm filter-input" style="width:160px"></select>
+          <select id="exec-shell" class="form-select form-select-sm filter-input" style="width:120px">
+            <option value="/bin/sh">/bin/sh</option>
+            <option value="/bin/bash">/bin/bash</option>
+            <option value="/bin/ash">/bin/ash</option>
+            <option value="/bin/zsh">/bin/zsh</option>
+          </select>
+          <button class="btn btn-sm btn-success" onclick="reconnectExec()">
+            <i class="fas fa-rotate-right me-1"></i>Reconnecter
+          </button>
+          <button type="button" class="btn-close ms-1" data-bs-dismiss="modal"></button>
+        </div>
+      </div>
+      <div class="modal-body p-0" style="flex:1;overflow:hidden">
+        <div id="terminal-container" style="width:100%;height:100%"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ CP MODAL -->
+<div class="modal fade" id="cp-modal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="fas fa-copy me-2 text-info"></i>Copie — <code id="cp-pod-name"></code></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <ul class="nav nav-tabs mb-3" id="cp-tabs">
+          <li class="nav-item">
+            <a class="nav-link active" data-bs-toggle="tab" href="#cp-dl">
+              <i class="fas fa-download me-1"></i>Télécharger
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#cp-ul">
+              <i class="fas fa-upload me-1"></i>Envoyer
+            </a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <!-- Download -->
+          <div class="tab-pane fade show active" id="cp-dl">
+            <div class="mb-3">
+              <label class="form-label small">Conteneur</label>
+              <select id="cp-dl-container" class="form-select form-select-sm filter-input"></select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small">Chemin dans le conteneur</label>
+              <input type="text" id="cp-dl-path" class="form-control form-control-sm filter-input"
+                     placeholder="/etc/hosts">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="cpDownload()">
+              <i class="fas fa-download me-1"></i>Télécharger
+            </button>
+          </div>
+          <!-- Upload -->
+          <div class="tab-pane fade" id="cp-ul">
+            <div class="mb-3">
+              <label class="form-label small">Conteneur</label>
+              <select id="cp-ul-container" class="form-select form-select-sm filter-input"></select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small">Fichier local</label>
+              <input type="file" id="cp-ul-file" class="form-control form-control-sm filter-input">
+            </div>
+            <div class="mb-3">
+              <label class="form-label small">Destination dans le conteneur</label>
+              <input type="text" id="cp-ul-path" class="form-control form-control-sm filter-input"
+                     placeholder="/tmp/monfichier.txt">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="cpUpload()">
+              <i class="fas fa-upload me-1"></i>Envoyer
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal fade" id="yaml-modal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
@@ -313,9 +415,11 @@
   </div>
 </div>
 
-<!-- Bootstrap JS + highlight.js -->
+<!-- Bootstrap JS + highlight.js + xterm.js -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm@4.19.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.5.0/lib/xterm-addon-fit.js"></script>
 
 <script>
 // ═══════════════════════════════════════════════════════════════════════
@@ -344,7 +448,7 @@ const GROUPS = []; // loaded from API
 //  COLUMN & ACTION CONFIG
 // ═══════════════════════════════════════════════════════════════════════
 const ACTIONS = {
-  pods:                    ['yaml','logs','delete'],
+  pods:                    ['yaml','logs','exec','cp','delete'],
   deployments:             ['yaml','scale','restart','delete'],
   statefulsets:            ['yaml','scale','restart','delete'],
   daemonsets:              ['yaml','restart','delete'],
@@ -946,7 +1050,11 @@ function buildActions(actions, r) {
           ? [`<li><a class="dropdown-item" onclick="showYAML('${esc(name)}')"><i class="fas fa-code me-2"></i>YAML</a></li>`]
           : [];
       case 'logs':
-        return [`<li><a class="dropdown-item" onclick="showLogs('${esc(name)}')"><i class="fas fa-terminal me-2"></i>Logs</a></li>`];
+        return [`<li><a class="dropdown-item" onclick="showLogs('${esc(name)}')"><i class="fas fa-list me-2"></i>Logs</a></li>`];
+      case 'exec':
+        return [`<li><a class="dropdown-item" onclick="showExec('${esc(name)}')"><i class="fas fa-terminal me-2"></i>Exec</a></li>`];
+      case 'cp':
+        return [`<li><a class="dropdown-item" onclick="showCP('${esc(name)}')"><i class="fas fa-copy me-2"></i>Copier fichiers</a></li>`];
       case 'scale':
         return p.canUpdate
           ? [`<li><a class="dropdown-item" onclick="showScale('${esc(name)}',${r.spec?.replicas??1})"><i class="fas fa-up-right-and-down-left-from-center me-2"></i>Scaler</a></li>`]
@@ -1181,6 +1289,141 @@ async function doRestart(name) {
     await api('POST', `/${S.ns}/${S.resourceType}/${name}/restart`);
     toast(`Restart déclenché pour ${name}`);
     setTimeout(loadResources, 1500);
+  } catch(e) { toast('Erreur: ' + e.message, 'danger'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  EXEC (WebSocket terminal)
+// ═══════════════════════════════════════════════════════════════════════
+const exec = { term: null, ws: null, fit: null, pod: '' };
+
+async function showExec(podName) {
+  exec.pod = podName;
+  document.getElementById('exec-pod-name').textContent = podName;
+
+  try {
+    const { containers } = await api('GET', `/${S.ns}/pods/${podName}/containers`);
+    document.getElementById('exec-container').innerHTML =
+      containers.map(c => `<option>${c}</option>`).join('');
+  } catch(e) {}
+
+  new bootstrap.Modal('#exec-modal').show();
+}
+
+function reconnectExec() { startExecSession(); }
+
+function startExecSession() {
+  if (exec.ws) { exec.ws.close(); exec.ws = null; }
+  if (exec.term) { exec.term.dispose(); exec.term = null; }
+
+  const container = document.getElementById('exec-container').value;
+  const shell     = document.getElementById('exec-shell').value;
+
+  exec.term = new Terminal({
+    cursorBlink: true,
+    scrollback: 5000,
+    theme: {
+      background: '#0d1117', foreground: '#c9d1d9',
+      cursor: '#58a6ff', selectionBackground: '#264f78',
+    },
+  });
+  exec.fit = new FitAddon.FitAddon();
+  exec.term.loadAddon(exec.fit);
+  exec.term.open(document.getElementById('terminal-container'));
+  exec.fit.fit();
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${proto}//${location.host}/api/v1/${S.ns}/pods/${exec.pod}/exec` +
+    `?container=${encodeURIComponent(container)}&shell=${encodeURIComponent(shell)}`;
+
+  exec.ws = new WebSocket(url);
+  exec.ws.binaryType = 'arraybuffer';
+
+  exec.ws.onopen = () => {
+    sendResize();
+    exec.term.focus();
+  };
+  exec.ws.onmessage = (ev) => {
+    exec.term.write(ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : ev.data);
+  };
+  exec.ws.onclose = () => exec.term?.write('\r\n\x1b[33m[Connection closed]\x1b[0m\r\n');
+  exec.ws.onerror = () => exec.term?.write('\r\n\x1b[31m[WebSocket error]\x1b[0m\r\n');
+
+  exec.term.onData(d => exec.ws?.readyState === WebSocket.OPEN && exec.ws.send(d));
+  exec.term.onResize(({ cols, rows }) => sendResize(cols, rows));
+
+  function sendResize(cols, rows) {
+    if (exec.ws?.readyState !== WebSocket.OPEN) return;
+    const j = JSON.stringify({ cols: cols || exec.term.cols, rows: rows || exec.term.rows });
+    const buf = new Uint8Array(1 + j.length);
+    buf[0] = 0x01;
+    for (let i = 0; i < j.length; i++) buf[i + 1] = j.charCodeAt(i);
+    exec.ws.send(buf);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const m = document.getElementById('exec-modal');
+  m.addEventListener('shown.bs.modal', startExecSession);
+  m.addEventListener('hidden.bs.modal', () => {
+    if (exec.ws) { exec.ws.close(); exec.ws = null; }
+    if (exec.term) { exec.term.dispose(); exec.term = null; }
+  });
+  window.addEventListener('resize', () => exec.fit?.fit());
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CP (copy files)
+// ═══════════════════════════════════════════════════════════════════════
+const cp = { pod: '' };
+
+async function showCP(podName) {
+  cp.pod = podName;
+  document.getElementById('cp-pod-name').textContent = podName;
+
+  try {
+    const { containers } = await api('GET', `/${S.ns}/pods/${podName}/containers`);
+    const opts = containers.map(c => `<option>${c}</option>`).join('');
+    document.getElementById('cp-dl-container').innerHTML = opts;
+    document.getElementById('cp-ul-container').innerHTML = opts;
+  } catch(e) {}
+
+  new bootstrap.Modal('#cp-modal').show();
+}
+
+function cpDownload() {
+  const container = document.getElementById('cp-dl-container').value;
+  const path = document.getElementById('cp-dl-path').value.trim();
+  if (!path) { toast('Chemin requis', 'warning'); return; }
+
+  const filename = path.split('/').pop() || 'download';
+  const url = `/api/v1/${S.ns}/pods/${cp.pod}/cp` +
+    `?container=${encodeURIComponent(container)}&path=${encodeURIComponent(path)}`;
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+async function cpUpload() {
+  const container = document.getElementById('cp-ul-container').value;
+  const dstPath   = document.getElementById('cp-ul-path').value.trim();
+  const fileInput = document.getElementById('cp-ul-file');
+
+  if (!dstPath)             { toast('Chemin de destination requis', 'warning'); return; }
+  if (!fileInput.files.length) { toast('Sélectionner un fichier', 'warning'); return; }
+
+  const url = `/api/v1/${S.ns}/pods/${cp.pod}/cp` +
+    `?container=${encodeURIComponent(container)}&path=${encodeURIComponent(dstPath)}`;
+  try {
+    const res = await fetch(url, { method: 'POST', body: fileInput.files[0] });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    toast(`Fichier envoyé vers ${dstPath}`);
+    bootstrap.Modal.getInstance('#cp-modal').hide();
   } catch(e) { toast('Erreur: ' + e.message, 'danger'); }
 }
 

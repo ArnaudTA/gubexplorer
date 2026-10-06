@@ -1,14 +1,21 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"gubexplorer/internal/k8s"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"k8s.io/client-go/tools/remotecommand"
 )
 
 // Handler holds shared dependencies for all HTTP handlers.
@@ -242,6 +249,152 @@ func (h *Handler) StreamPodLogs(c *gin.Context) {
 		c.SSEvent("error", err.Error())
 		c.Writer.Flush()
 	}
+}
+
+// ---------- Exec ----------
+
+// wsUpgrader upgrades HTTP connections to WebSocket for exec sessions.
+var wsUpgrader = websocket.Upgrader{
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
+	// Allow any origin since the app uses Basic Auth for access control.
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+// wsWriter is a thread-safe io.Writer that sends binary WebSocket messages.
+type wsWriter struct {
+	mu   sync.Mutex
+	conn *websocket.Conn
+}
+
+func (w *wsWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.conn.WriteMessage(websocket.BinaryMessage, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+// termSizeQueue implements remotecommand.TerminalSizeQueue via a channel.
+type termSizeQueue struct{ ch chan remotecommand.TerminalSize }
+
+func (q *termSizeQueue) Next() *remotecommand.TerminalSize {
+	s, ok := <-q.ch
+	if !ok {
+		return nil
+	}
+	return &s
+}
+
+// ExecPod upgrades the HTTP connection to a WebSocket and streams a shell
+// session inside the requested pod container.
+//
+// WebSocket framing (client → server):
+//   - byte[0] == 0x01 : resize event, rest is JSON {"cols":N,"rows":N}
+//   - otherwise       : raw stdin bytes
+//
+// WebSocket framing (server → client): raw stdout/stderr bytes
+func (h *Handler) ExecPod(c *gin.Context) {
+	namespace := c.Param("namespace")
+	podName := c.Param("name")
+	container := c.Query("container")
+	shell := c.DefaultQuery("shell", "/bin/sh")
+
+	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+
+	stdinR, stdinW := io.Pipe()
+	defer stdinW.Close()
+
+	sizeQ := &termSizeQueue{ch: make(chan remotecommand.TerminalSize, 1)}
+	defer close(sizeQ.ch)
+
+	// Read WebSocket messages → stdin or resize events
+	go func() {
+		defer stdinW.Close()
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				cancel()
+				return
+			}
+			if len(msg) > 0 && msg[0] == 0x01 {
+				var rs struct {
+					Cols uint16 `json:"cols"`
+					Rows uint16 `json:"rows"`
+				}
+				if json.Unmarshal(msg[1:], &rs) == nil {
+					select {
+					case sizeQ.ch <- remotecommand.TerminalSize{Width: rs.Cols, Height: rs.Rows}:
+					default:
+					}
+				}
+				continue
+			}
+			if _, err := stdinW.Write(msg); err != nil {
+				return
+			}
+		}
+	}()
+
+	stdout := &wsWriter{conn: conn}
+	err = h.client.ExecStream(ctx, namespace, podName, container,
+		[]string{shell}, stdinR, stdout, stdout, true, sizeQ)
+	if err != nil && ctx.Err() == nil {
+		stdout.Write([]byte("\r\n\x1b[31m[Session ended: " + err.Error() + "]\x1b[0m\r\n"))
+	} else {
+		stdout.Write([]byte("\r\n\x1b[33m[Connection closed]\x1b[0m\r\n"))
+	}
+}
+
+// ---------- CP ----------
+
+// CopyFromPod streams a file from a container as an HTTP download.
+// Query params: container, path
+func (h *Handler) CopyFromPod(c *gin.Context) {
+	namespace := c.Param("namespace")
+	podName := c.Param("name")
+	container := c.Query("container")
+	path := c.Query("path")
+	if path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		return
+	}
+
+	filename := filepath.Base(path)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Header("Content-Type", "application/octet-stream")
+
+	if err := h.client.CopyFromContainer(c.Request.Context(), namespace, podName, container, path, c.Writer); err != nil {
+		// Headers already sent; write error inline.
+		c.Writer.Write([]byte("\nError: " + err.Error())) //nolint:errcheck
+	}
+}
+
+// CopyToPod uploads the request body to a file path inside a container.
+// Query params: container, path
+func (h *Handler) CopyToPod(c *gin.Context) {
+	namespace := c.Param("namespace")
+	podName := c.Param("name")
+	container := c.Query("container")
+	path := c.Query("path")
+	if path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		return
+	}
+
+	if err := h.client.CopyToContainer(c.Request.Context(), namespace, podName, container, path, c.Request.Body); err != nil {
+		c.JSON(statusCode(err), gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "uploaded to " + path})
 }
 
 // ---------- helpers ----------
