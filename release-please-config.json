@@ -1,23 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "release-type": "simple",
   "packages": {
     ".": {
-      "component": "gubexplorer",
-      "changelog-path": "CHANGELOG.md",
-      "bump-minor-pre-major": true,
-      "extra-files": [
-        {
-          "type": "yaml",
-          "path": "charts/gubexplorer/Chart.yaml",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "yaml",
-          "path": "charts/gubexplorer/Chart.yaml",
-          "jsonpath": "$.appVersion"
-        }
-      ]
+      "release-type": "go",
+      "initial-version": "0.1.0",
+      "include-component-in-tag": false,
+      "versioning": "prerelease",
+      "prerelease": false,
+      "prerelease-type": "",
+      "extra-files": []
     }
   }
 }

@@ -1,0 +1,65 @@
+name: Build
+
+on:
+  push:
+    tags:
+    - "v*.*.*"
+  workflow_call:
+    inputs:
+      tags:
+        required: false
+        type: string
+        description: "Tags to push, separated by newline. If not provided, extracted from the git tag."
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.get_version.outputs.tags }}
+      version: ${{ steps.get_version.outputs.version }}
+    permissions:
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+    - uses: docker/setup-qemu-action@v3
+    - uses: docker/setup-buildx-action@v3
+    - uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Extract version
+      id: get_version
+      run: |
+        if [ -z "${{ inputs.tags }}" ]; then
+          echo "No tags provided, extracting from git tag"
+          VERSION=${GITHUB_REF_NAME#v}
+          MAJOR="ghcr.io/arnaudta/gubexplorer:$(echo $VERSION | cut -d. -f1)"
+          MINOR="ghcr.io/arnaudta/gubexplorer:$(echo $VERSION | cut -d. -f1,2)"
+          PATCH="ghcr.io/arnaudta/gubexplorer:${VERSION}"
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "$MINOR" >> "$GITHUB_OUTPUT"
+          echo "$PATCH" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        else
+          VERSION=$(head -n 1 | cut -d: -f2 <<< "${{ inputs.tags }}")
+          echo "Using provided tags"
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "${{ inputs.tags }}" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Build and push
+      uses: docker/build-push-action@v6
+      with:
+        build-args: |
+          VERSION=${{ steps.get_version.outputs.version }}
+        push: true
+        pull: true
+        context: .
+        file: backend/Dockerfile
+        target: prod
+        tags: ${{ steps.get_version.outputs.tags }}

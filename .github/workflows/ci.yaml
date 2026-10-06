@@ -2,68 +2,25 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    types:
+    - opened
+    - reopened
+    - synchronize
+    - ready_for_review
+    branches:
+    - "**"
+  workflow_dispatch:
 
 jobs:
-  # ── Go build, vet, test ──────────────────────────────────────────────────
-  go:
-    name: Go build & vet
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  lint:
+    uses: ./.github/workflows/lint.yml
+    with:
+      go-version: "v1.27.1"
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Download modules
-        run: go mod download
-
-      - name: Build
-        run: go build -ldflags="-s -w -X main.version=ci" ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./...
-
-  # ── Helm lint ────────────────────────────────────────────────────────────
-  helm:
-    name: Helm lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: azure/setup-helm@v4
-        with:
-          version: latest
-
-      - name: Lint chart
-        run: helm lint charts/gubexplorer --strict
-
-  # ── Docker build (no push) ───────────────────────────────────────────────
-  docker:
-    name: Docker build test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build image (amd64 only, no push)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          platforms: linux/amd64
-          build-args: VERSION=ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+  build:
+    permissions:
+      packages: write
+    uses: ./.github/workflows/build.yml
+    with:
+      tags: |
+        ghcr.io/arnaudta/gubexplorer:pr-${{ github.event.pull_request.number }}
