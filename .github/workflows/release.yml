@@ -50,15 +50,15 @@ jobs:
       if: ${{ steps.export-pr.outputs.pr_branch_name }}
       run: |
         export VERSION=$(jq -r '.["."]' < .release-please-manifest.json)
-        yq e -i '.appVersion = env(VERSION)' helm/Chart.yaml
+        yq e -i '.appVersion = env(VERSION)' charts/gubexplorer/Chart.yaml
 
-        CHART_VERSION=$(yq .version helm/Chart.yaml)
+        CHART_VERSION=$(yq .version charts/gubexplorer/Chart.yaml)
         IFS='.' read -r major minor patch <<< "$CHART_VERSION"
         export NEW_CHART_VERSION="$major.$minor.$((patch + 1))"
         echo "$NEW_CHART_VERSION"
-        yq e -i '.version = env(NEW_CHART_VERSION)' helm/Chart.yaml
+        yq e -i '.version = env(NEW_CHART_VERSION)' charts/gubexplorer/Chart.yaml
 
-        docker run --rm --volume "$(pwd)/helm:/helm-docs" -u $(id -u) docker.io/jnorwood/helm-docs:latest
+        docker run --rm --volume "$(pwd)/charts/gubexplorer:/helm-docs" -u $(id -u) docker.io/jnorwood/helm-docs:latest
         git config --global user.name "Arnaud Tardif"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add .
