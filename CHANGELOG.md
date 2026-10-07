@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2](https://github.com/ArnaudTA/gubexplorer/compare/v1.1.1...v1.1.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* update RBAC configuration to support cluster and namespace-scoped roles ([8df9512](https://github.com/ArnaudTA/gubexplorer/commit/8df9512c495f71bda14c38e35b6d0234a33f6b04))
+* update rbacHintYAML function to remove target namespace parameter and add missing resource ([d7cc496](https://github.com/ArnaudTA/gubexplorer/commit/d7cc496971d171acdb6efae707dd8f0d816faf68))
+
 ## [1.1.1](https://github.com/ArnaudTA/gubexplorer/compare/v1.1.0...v1.1.1) (2026-10-06)
 
 
