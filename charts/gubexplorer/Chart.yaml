@@ -2,8 +2,8 @@ apiVersion: v2
 name: gubexplorer
 description: Web UI to explore and manage Kubernetes namespace resources
 type: application
-version: 1.0.5
-appVersion: "1.2.2"
+version: 1.0.6
+appVersion: "1.2.3"
 keywords:
   - kubernetes
   - explorer
