@@ -57,7 +57,7 @@ spec:
             - name: POD_NAMESPACE
               value: {{ .Values.config.defaultNamespace | quote }}
             {{- end }}
-            {{- if and (not .Values.rbac.clusterScope) .Values.rbac.candidateNamespaces }}
+            {{- if and (not .Values.rbac.clusterScope) }}
             - name: NAMESPACES_CONFIGMAP
               value: {{ printf "%s-namespaces" (include "gubexplorer.fullname" .) | quote }}
             {{- end }}
