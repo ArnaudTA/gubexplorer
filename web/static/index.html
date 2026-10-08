@@ -1083,7 +1083,7 @@ metadata:
   name: ${saName}
 rules:
   - apiGroups: [""]
-    resources: [pods, pods/log, pods/exec services, endpoints, configmaps,
+    resources: [pods, pods/log, pods/exec, services, endpoints, configmaps,
                 secrets, serviceaccounts, persistentvolumeclaims, events]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [apps]
