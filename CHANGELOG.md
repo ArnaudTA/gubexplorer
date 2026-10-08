@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.2](https://github.com/ArnaudTA/gubexplorer/compare/v1.2.1...v1.2.2) (2026-10-08)
+
+
+### Bug Fixes
+
+* enhance namespace input behavior to refresh options on click ([12f928b](https://github.com/ArnaudTA/gubexplorer/commit/12f928b2fb9c58a7b54ef8405047b1427e74f95b))
+* remove unnecessary condition for NAMESPACES_CONFIGMAP in deployment.yaml ([1974e26](https://github.com/ArnaudTA/gubexplorer/commit/1974e267352d33777766967aee0b325d37f2401c))
+
 ## [1.2.1](https://github.com/ArnaudTA/gubexplorer/compare/v1.2.0...v1.2.1) (2026-10-08)
 
 
