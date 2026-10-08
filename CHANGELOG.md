@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3](https://github.com/ArnaudTA/gubexplorer/compare/v1.2.2...v1.2.3) (2026-10-08)
+
+
+### Bug Fixes
+
+* improve namespace accessibility tracking and update ConfigMap handling ([407a8c8](https://github.com/ArnaudTA/gubexplorer/commit/407a8c8c149235d84f2e2594c7365349f2a8c374))
+
 ## [1.2.2](https://github.com/ArnaudTA/gubexplorer/compare/v1.2.1...v1.2.2) (2026-10-08)
 
 
