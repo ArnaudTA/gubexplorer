@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/ArnaudTA/gubexplorer/compare/v1.1.2...v1.2.0) (2026-10-08)
+
+
+### Features
+
+* implement NamespaceStore for probing accessible namespaces and update deployment configuration ([2fef600](https://github.com/ArnaudTA/gubexplorer/commit/2fef600e884ab7d757248b15869693a039c1d666))
+
 ## [1.1.2](https://github.com/ArnaudTA/gubexplorer/compare/v1.1.1...v1.1.2) (2026-10-07)
 
 

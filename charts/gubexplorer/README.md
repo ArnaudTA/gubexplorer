@@ -1,6 +1,6 @@
 # gubexplorer
 
-![Version: 1.0.2](https://img.shields.io/badge/Version-1.0.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.1.2](https://img.shields.io/badge/AppVersion-1.1.2-informational?style=flat-square)
+![Version: 1.0.3](https://img.shields.io/badge/Version-1.0.3-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.2.0](https://img.shields.io/badge/AppVersion-1.2.0-informational?style=flat-square)
 
 Web UI to explore and manage Kubernetes namespace resources
 
@@ -37,6 +37,7 @@ Web UI to explore and manage Kubernetes namespace resources
 | podAnnotations | object | `{}` |  |
 | podLabels | object | `{}` |  |
 | podSecurityContext | string | `nil` |  |
+| rbac.candidateNamespaces | list | `[]` |  |
 | rbac.clusterRules[0].apiGroups[0] | string | `""` |  |
 | rbac.clusterRules[0].resources[0] | string | `"namespaces"` |  |
 | rbac.clusterRules[0].verbs[0] | string | `"get"` |  |
