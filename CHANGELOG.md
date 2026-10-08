@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/ArnaudTA/gubexplorer/compare/v1.2.0...v1.2.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* correct resource list in RBAC configuration for pods ([8854948](https://github.com/ArnaudTA/gubexplorer/commit/88549483e2fb19396c06e76c18bd166b6c1d616f))
+
 ## [1.2.0](https://github.com/ArnaudTA/gubexplorer/compare/v1.1.2...v1.2.0) (2026-10-08)
 
 
