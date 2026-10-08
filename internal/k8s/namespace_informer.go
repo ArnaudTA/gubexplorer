@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
-	authv1 "k8s.io/api/authorization/v1"
+	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
@@ -17,41 +17,64 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// NamespaceStore probes a user-supplied list of candidate namespaces for
-// accessibility and maintains an in-memory list of reachable ones.
-// It uses a SharedInformer on a ConfigMap to react to changes in the
-// candidate list, and persists accessible namespaces back to the same
-// ConfigMap under the "accessible" key.
+// NamespaceStore maintains an in-memory set of namespaces that the running
+// identity has successfully accessed. The set is persisted to a ConfigMap
+// under the "accessible" key so it survives pod restarts.
+//
+// Population:
+//   - On startup: seeded from the ConfigMap's existing "accessible" key.
+//   - At runtime: via AddNamespace, called after a successful resource access.
+//
+// A SharedInformer watches the ConfigMap so that external updates (e.g. a
+// Helm upgrade pre-seeding the list) are merged into the in-memory set.
 type NamespaceStore struct {
-	mu         sync.RWMutex
-	namespaces []string
+	mu  sync.RWMutex
+	set map[string]struct{}
 
 	c           *Client
 	cmNamespace string
 	cmName      string
 }
 
-// NewNamespaceStore creates a NamespaceStore backed by the named ConfigMap in
-// cmNamespace.
 func NewNamespaceStore(c *Client, cmNamespace, cmName string) *NamespaceStore {
-	return &NamespaceStore{c: c, cmNamespace: cmNamespace, cmName: cmName}
+	return &NamespaceStore{
+		c:           c,
+		cmNamespace: cmNamespace,
+		cmName:      cmName,
+		set:         make(map[string]struct{}),
+	}
 }
 
-// Namespaces returns a copy of the current accessible namespace list.
+// Namespaces returns a sorted copy of the current accessible namespace list.
 func (s *NamespaceStore) Namespaces() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]string, len(s.namespaces))
-	copy(out, s.namespaces)
-	return out
+	return s.sortedKeys()
 }
 
-// Start launches the ConfigMap informer and blocks until ctx is cancelled.
-// Call it in a dedicated goroutine.
+// AddNamespace adds ns to the store. If ns was not already present the updated
+// list is persisted to the ConfigMap. Safe to call concurrently.
+func (s *NamespaceStore) AddNamespace(ctx context.Context, ns string) {
+	s.mu.Lock()
+	if _, exists := s.set[ns]; exists {
+		s.mu.Unlock()
+		return
+	}
+	s.set[ns] = struct{}{}
+	accessible := s.sortedKeys()
+	s.mu.Unlock()
+
+	s.persistAccessible(ctx, accessible)
+}
+
+// Start seeds the store from the ConfigMap, then launches the informer and
+// blocks until ctx is cancelled. Call it in a dedicated goroutine.
 func (s *NamespaceStore) Start(ctx context.Context) {
+	s.loadFromCM(ctx)
+
 	factory := informers.NewSharedInformerFactoryWithOptions(
 		s.c.typed,
-		5*time.Minute,
+		0, // no periodic resync — changes arrive via Watch events only
 		informers.WithNamespace(s.cmNamespace),
 		informers.WithTweakListOptions(func(opts *metav1.ListOptions) {
 			opts.FieldSelector = fields.OneTermEqualSelector("metadata.name", s.cmName).String()
@@ -60,96 +83,81 @@ func (s *NamespaceStore) Start(ctx context.Context) {
 
 	inf := factory.Core().V1().ConfigMaps().Informer()
 	inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(_ interface{}) { s.reconcile(ctx) },
-		UpdateFunc: func(_, _ interface{}) { s.reconcile(ctx) },
+		AddFunc:    func(obj interface{}) { s.mergeFromObj(obj) },
+		UpdateFunc: func(_, obj interface{}) { s.mergeFromObj(obj) },
 	})
 
 	factory.Start(ctx.Done())
 	cache.WaitForCacheSync(ctx.Done(), inf.HasSynced)
-	// Initial reconcile in case the Add event was already processed before the
-	// handler was registered (race), or the ConfigMap predates this run.
-	s.reconcile(ctx)
+	<-ctx.Done()
 }
 
-// reconcile reads the candidates key, probes each namespace, updates the
-// in-memory list, and persists the result back to the ConfigMap.
-func (s *NamespaceStore) reconcile(ctx context.Context) {
+// loadFromCM performs a direct Get on startup to seed the in-memory set
+// before the informer Watch is established.
+func (s *NamespaceStore) loadFromCM(ctx context.Context) {
 	cm, err := s.c.typed.CoreV1().ConfigMaps(s.cmNamespace).Get(ctx, s.cmName, metav1.GetOptions{})
 	if err != nil {
-		log.Printf("namespace-store: get ConfigMap %s/%s: %v", s.cmNamespace, s.cmName, err)
+		log.Printf("namespace-store: initial load %s/%s: %v", s.cmNamespace, s.cmName, err)
 		return
 	}
-
-	candidates := parseCandidates(cm.Data["candidates"])
-	if len(candidates) == 0 {
-		return
-	}
-
-	accessible := s.probeAll(ctx, candidates)
-
-	s.mu.Lock()
-	s.namespaces = accessible
-	s.mu.Unlock()
-
-	s.persistAccessible(ctx, accessible)
+	s.mergeLines(cm.Data["accessible"])
 }
 
-// probeAll checks each candidate namespace via SelfSubjectRulesReview and
-// returns those where the running identity can list or get at least one known
-// namespaced resource.
-func (s *NamespaceStore) probeAll(ctx context.Context, candidates []string) []string {
-	var out []string
-	for _, ns := range candidates {
-		if s.isAccessible(ctx, ns) {
-			out = append(out, ns)
-		}
+// mergeFromObj is the informer event handler. It merges the "accessible" key
+// of the received ConfigMap into the in-memory set (additive: namespaces
+// recorded through successful access are never removed at runtime).
+func (s *NamespaceStore) mergeFromObj(obj interface{}) {
+	cm, ok := obj.(*corev1.ConfigMap)
+	if !ok {
+		return
+	}
+	s.mergeLines(cm.Data["accessible"])
+}
+
+func (s *NamespaceStore) mergeLines(raw string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ns := range parseLines(raw) {
+		s.set[ns] = struct{}{}
+	}
+}
+
+// persistAccessible patches only the "accessible" key of the ConfigMap.
+// If the ConfigMap does not yet exist it is created.
+func (s *NamespaceStore) persistAccessible(ctx context.Context, accessible []string) {
+	value := strings.Join(accessible, "\n")
+	patch := fmt.Sprintf(`{"data":{"accessible":%q}}`, value)
+	_, err := s.c.typed.CoreV1().ConfigMaps(s.cmNamespace).Patch(
+		ctx, s.cmName, types.MergePatchType, []byte(patch), metav1.PatchOptions{},
+	)
+	if err == nil {
+		return
+	}
+	if !k8serrors.IsNotFound(err) {
+		log.Printf("namespace-store: patch %s/%s: %v", s.cmNamespace, s.cmName, err)
+		return
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: s.cmName, Namespace: s.cmNamespace},
+		Data:       map[string]string{"accessible": value},
+	}
+	if _, err = s.c.typed.CoreV1().ConfigMaps(s.cmNamespace).Create(ctx, cm, metav1.CreateOptions{}); err != nil {
+		log.Printf("namespace-store: create %s/%s: %v", s.cmNamespace, s.cmName, err)
+	}
+}
+
+// sortedKeys returns a sorted slice of the set keys. Caller must hold mu.
+func (s *NamespaceStore) sortedKeys() []string {
+	out := make([]string, 0, len(s.set))
+	for ns := range s.set {
+		out = append(out, ns)
 	}
 	sort.Strings(out)
 	return out
 }
 
-func (s *NamespaceStore) isAccessible(ctx context.Context, ns string) bool {
-	review, err := s.c.typed.AuthorizationV1().SelfSubjectRulesReviews().Create(
-		ctx,
-		&authv1.SelfSubjectRulesReview{
-			Spec: authv1.SelfSubjectRulesReviewSpec{Namespace: ns},
-		},
-		metav1.CreateOptions{},
-	)
-	if err != nil {
-		return false
-	}
-	for _, info := range GVRByName {
-		if !info.Namespaced {
-			continue
-		}
-		for _, rule := range review.Status.ResourceRules {
-			if !ruleMatches(rule, info) {
-				continue
-			}
-			for _, v := range rule.Verbs {
-				if v == "list" || v == "get" || v == "watch" || v == "*" {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-// persistAccessible patches the "accessible" key of the ConfigMap using a
-// merge patch so we never overwrite the user-managed "candidates" key.
-func (s *NamespaceStore) persistAccessible(ctx context.Context, accessible []string) {
-	patch := fmt.Sprintf(`{"data":{"accessible":%q}}`, strings.Join(accessible, "\n"))
-	if _, err := s.c.typed.CoreV1().ConfigMaps(s.cmNamespace).Patch(
-		ctx, s.cmName, types.MergePatchType, []byte(patch), metav1.PatchOptions{},
-	); err != nil {
-		log.Printf("namespace-store: patch ConfigMap %s/%s: %v", s.cmNamespace, s.cmName, err)
-	}
-}
-
-// parseCandidates splits a newline- or comma-separated list of namespace names.
-func parseCandidates(raw string) []string {
+// parseLines splits a newline- or comma-separated list of namespace names.
+func parseLines(raw string) []string {
 	var out []string
 	for _, tok := range strings.FieldsFunc(raw, func(r rune) bool { return r == '\n' || r == ',' }) {
 		if ns := strings.TrimSpace(tok); ns != "" {

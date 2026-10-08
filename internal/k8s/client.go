@@ -111,6 +111,16 @@ func (c *Client) Host() string { return c.host }
 // ListNamespaces instead of the cluster-level namespace API.
 func (c *Client) SetNamespaceStore(s *NamespaceStore) { c.nsStore = s }
 
+// RecordNamespace registers ns as successfully accessed. If a NamespaceStore
+// is attached, the namespace is added to the store and the ConfigMap is
+// patched asynchronously if ns is new.
+func (c *Client) RecordNamespace(ns string) {
+	if c.nsStore == nil {
+		return
+	}
+	go c.nsStore.AddNamespace(context.Background(), ns)
+}
+
 // ── resourceIface: single GVR-resolution point ────────────────────────────
 
 // resourceIface returns the dynamic.ResourceInterface for resourceType in the

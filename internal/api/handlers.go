@@ -118,6 +118,7 @@ func (h *Handler) ListResources(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items)})
+	h.client.RecordNamespace(namespace)
 }
 
 // GetResource returns the YAML of a single resource.
@@ -132,6 +133,7 @@ func (h *Handler) GetResource(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"yaml": yaml})
+	h.client.RecordNamespace(namespace)
 }
 
 // UpdateResource applies a YAML body to an existing resource.
