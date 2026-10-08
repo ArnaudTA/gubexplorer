@@ -34,6 +34,7 @@ type Client struct {
 	restConfig *rest.Config
 	host       string
 	cache      gvrCache
+	nsStore    *NamespaceStore
 }
 
 // ── GVR cache ──────────────────────────────────────────────────────────────
@@ -106,6 +107,10 @@ func NewClient(kubeconfig string) (*Client, error) {
 // Host returns the Kubernetes API server address.
 func (c *Client) Host() string { return c.host }
 
+// SetNamespaceStore attaches a NamespaceStore that will be used by
+// ListNamespaces instead of the cluster-level namespace API.
+func (c *Client) SetNamespaceStore(s *NamespaceStore) { c.nsStore = s }
+
 // ── resourceIface: single GVR-resolution point ────────────────────────────
 
 // resourceIface returns the dynamic.ResourceInterface for resourceType in the
@@ -155,7 +160,15 @@ func (c *Client) resolveGVR(ctx context.Context, resourceType string) (schema.Gr
 // ── CRUD ───────────────────────────────────────────────────────────────────
 
 // ListNamespaces returns all accessible namespace names.
+// When a NamespaceStore is attached (namespaced mode), it returns the
+// probed-accessible list instead of querying the cluster-level namespace API.
 func (c *Client) ListNamespaces(ctx context.Context) ([]string, error) {
+	if c.nsStore != nil {
+		if ns := c.nsStore.Namespaces(); len(ns) > 0 {
+			return ns, nil
+		}
+		return nil, fmt.Errorf("no accessible namespaces probed yet")
+	}
 	list, err := c.typed.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
@@ -409,9 +422,9 @@ type CRDGroup struct {
 
 // CRDResource describes a single custom resource type.
 type CRDResource struct {
-	Name       string `json:"name"`       // plural name
+	Name       string `json:"name"` // plural name
 	Kind       string `json:"kind"`
-	Version    string `json:"version"`    // storage version
+	Version    string `json:"version"` // storage version
 	Namespaced bool   `json:"namespaced"`
 }
 

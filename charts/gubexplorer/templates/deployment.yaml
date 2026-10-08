@@ -57,6 +57,10 @@ spec:
             - name: POD_NAMESPACE
               value: {{ .Values.config.defaultNamespace | quote }}
             {{- end }}
+            {{- if and (not .Values.rbac.clusterScope) .Values.rbac.candidateNamespaces }}
+            - name: NAMESPACES_CONFIGMAP
+              value: {{ printf "%s-namespaces" (include "gubexplorer.fullname" .) | quote }}
+            {{- end }}
             {{- if .Values.kubeconfig.enabled }}
             - name: KUBECONFIG
               value: /etc/kubeconfig/kubeconfig

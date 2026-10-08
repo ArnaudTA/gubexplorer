@@ -434,6 +434,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 const S = {
   ns: 'default',
+  nsLastValid: 'default',
   resourceType: null,
   items: [],
   filteredItems: [],
@@ -782,8 +783,18 @@ async function init() {
   // Wire up the namespace combobox
   const nsInput = document.getElementById('ns-input');
   nsInput.value = S.ns;
+  S.nsLastValid = S.ns;
   nsInput.addEventListener('change', () => changeNamespace(nsInput.value));
   nsInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); changeNamespace(nsInput.value); nsInput.blur(); } });
+  // On click: clear the field so the datalist dropdown shows all options.
+  nsInput.addEventListener('mousedown', () => {
+    S.nsLastValid = nsInput.value || S.nsLastValid;
+    nsInput.value = '';
+  });
+  // On blur: restore the last valid namespace if nothing was entered.
+  nsInput.addEventListener('blur', () => {
+    if (!nsInput.value.trim()) nsInput.value = S.nsLastValid;
+  });
 
   await loadNamespaces();
   await loadSidebar();
@@ -809,6 +820,7 @@ async function changeNamespace(raw) {
   const ns = raw.trim();
   if (!ns || ns === S.ns) return;
   S.ns = ns;
+  S.nsLastValid = ns;
   document.getElementById('ns-input').value = ns;
   await loadPermissions();
   if (S.resourceType) await loadResources();

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"gubexplorer/internal/api"
 	"gubexplorer/internal/k8s"
@@ -39,6 +42,15 @@ func main() {
 
 	if *authUser != "" {
 		log.Printf("starting gubexplorer on :%s  |  default namespace: %s  |  auth: enabled (user=%s)", *port, *namespace, *authUser)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	if nsCM := os.Getenv("NAMESPACES_CONFIGMAP"); nsCM != "" {
+		store := k8s.NewNamespaceStore(client, saNamespace, nsCM)
+		client.SetNamespaceStore(store)
+		go store.Start(ctx)
 	}
 
 	router := api.NewRouter(client, *namespace, saNamespace, serviceAccount, *authUser, *authPass, version)

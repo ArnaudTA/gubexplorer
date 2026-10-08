@@ -35,6 +35,10 @@ rbac:
   # true  → ClusterRole + ClusterRoleBinding (can list all namespaces & resources cluster-wide)
   # false → Role + RoleBinding (namespace-scoped only)
   clusterScope: false
+  # Candidate namespaces to probe for accessibility when clusterScope: false.
+  # The informer checks each entry with SelfSubjectRulesReview and writes the
+  # accessible subset back to the ConfigMap under the "accessible" key.
+  candidateNamespaces: []
   # Rules applied when clusterScope: true (ClusterRole)
   clusterRules:
     - apiGroups: [""]

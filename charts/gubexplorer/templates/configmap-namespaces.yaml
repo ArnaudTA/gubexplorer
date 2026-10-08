@@ -1,0 +1,12 @@
+{{- if and .Values.rbac.create (not .Values.rbac.clusterScope) (.Values.rbac.candidateNamespaces) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gubexplorer.fullname" . }}-namespaces
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gubexplorer.labels" . | nindent 4 }}
+data:
+  candidates: {{ join "\n" .Values.rbac.candidateNamespaces | quote }}
+  accessible: ""
+{{- end }}
